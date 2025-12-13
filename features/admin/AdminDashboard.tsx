@@ -32,16 +32,16 @@ const StatCard: React.FC<{ title: string; value: number; icon: React.ElementType
 
 const AdminDashboard: React.FC = () => {
     const { navigate } = useNavigation();
-    const { profile } = useAuth();
+    const { profile, user, isLoading: isAuthLoading } = useAuth();
     const [users, setUsers] = useState<UserProfile[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingData, setIsLoadingData] = useState(true);
     const [filterRole, setFilterRole] = useState<'all' | 'teacher' | 'student'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
 
     // Fetch all users
     const fetchUsers = async () => {
-        setIsLoading(true);
+        setIsLoadingData(true);
         setError(null);
         try {
             const { data, error } = await supabase
@@ -55,18 +55,33 @@ const AdminDashboard: React.FC = () => {
             console.error(err);
             setError("Không thể tải danh sách người dùng. Hãy đảm bảo bạn có quyền Admin và RLS Policies đã được cấu hình đúng.");
         } finally {
-            setIsLoading(false);
+            setIsLoadingData(false);
         }
     };
 
     useEffect(() => {
-        if (profile?.role === 'admin') {
+        // Wait for global auth to finish loading before deciding
+        if (isAuthLoading) return;
+
+        // Check if user is admin via Profile (Source of Truth) OR Metadata (Fast Fallback)
+        const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
+
+        if (isAdmin) {
             fetchUsers();
         } else {
-            // Redirect if not admin (client-side protection)
+            // Redirect if not admin
             navigate('home');
         }
-    }, [profile, navigate]);
+    }, [profile, user, isAuthLoading, navigate]);
+
+    // Show loading if we are still waiting for auth or initial data check
+    if (isAuthLoading) {
+        return (
+            <div className="h-full w-full flex items-center justify-center">
+                <LoadingSpinner text="Đang xác thực quyền Admin..." />
+            </div>
+        );
+    }
 
     const handleUpdateStatus = async (userId: string, newStatus: 'active' | 'blocked') => {
         try {
@@ -160,7 +175,7 @@ const AdminDashboard: React.FC = () => {
                     </div>
                 )}
 
-                {isLoading ? (
+                {isLoadingData ? (
                     <div className="p-12">
                         <LoadingSpinner text="Đang tải dữ liệu..." />
                     </div>

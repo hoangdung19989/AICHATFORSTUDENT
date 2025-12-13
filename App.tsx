@@ -180,14 +180,11 @@ const AppContent: React.FC = () => {
 
     // Nếu đã đăng nhập và đang ở trang login -> Chuyển hướng
     if (user && currentView === 'login' && !isRecovery) {
+      // Logic mới: Không đợi profile nếu nó quá lâu hoặc lỗi.
+      // Dùng user_metadata làm phương án dự phòng để chuyển trang ngay.
+      const isAdmin = profile?.role === 'admin' || user.user_metadata?.role === 'admin';
       
-      // QUAN TRỌNG: Chờ đến khi có profile rồi mới chuyển hướng.
-      // Tránh trường hợp profile chưa load kịp (null) thì bị đẩy về 'home'.
-      if (!profile) {
-         return; 
-      }
-
-      if (profile.role === 'admin') {
+      if (isAdmin) {
           navigate('admin-dashboard');
       } else {
           navigate('home');
@@ -245,7 +242,7 @@ const AppContent: React.FC = () => {
 
   // --- RENDER LOGIC ---
 
-  // 1. Loading State (Prevent flashing)
+  // 1. Loading State (Global)
   if (isLoading) {
     return (
         <div className="h-screen w-full flex items-center justify-center bg-brand-bg">
@@ -261,16 +258,16 @@ const AppContent: React.FC = () => {
     }
     // Default to Login View for any other unauthenticated state
     return <LoginView onLoginSuccess={() => {
-        // Callback để trống, để useEffect xử lý chuyển hướng dựa trên role
+        // Callback để trống, để useEffect xử lý chuyển hướng
     }} />;
   }
 
   // 3. State: Đã đăng nhập nhưng đang ở Login View (Đang chờ Redirect)
-  // Fix: Hiển thị loading thay vì render default HomePage để tránh nhấp nháy sai trang.
+  // Chỉ hiện loading nếu thực sự đang xử lý chuyển hướng, tránh hiện quá lâu
   if (currentView === 'login') {
       return (
           <div className="h-screen w-full flex items-center justify-center bg-brand-bg">
-              <LoadingSpinner text="Đang kiểm tra quyền truy cập..." subText="Vui lòng đợi trong giây lát." />
+              <LoadingSpinner text="Đang chuyển hướng..." />
           </div>
       );
   }
