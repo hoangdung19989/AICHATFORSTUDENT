@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,7 +16,8 @@ import {
     UserGroupIcon,
     ClockIcon,
     ShieldCheckIcon,
-    BriefcaseIcon
+    BriefcaseIcon,
+    ArrowRightCircleIcon
 } from '../../components/icons';
 
 const StatCard: React.FC<{ title: string; value: number; icon: React.ElementType; color: string }> = ({ title, value, icon: Icon, color }) => (
@@ -40,8 +41,8 @@ const AdminDashboard: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch all users
-    const fetchUsers = async () => {
+    // Fetch all users - Wrapped in useCallback for stability
+    const fetchUsers = useCallback(async () => {
         setIsLoadingData(true);
         setError(null);
         try {
@@ -54,50 +55,28 @@ const AdminDashboard: React.FC = () => {
             setUsers(data as UserProfile[]);
         } catch (err: any) {
             console.error(err);
-            setError("Không thể tải danh sách người dùng. Hãy đảm bảo bạn có quyền Admin và RLS Policies đã được cấu hình đúng.");
+            setError("Không thể tải danh sách. Lỗi: " + err.message);
         } finally {
             setIsLoadingData(false);
         }
-    };
+    }, []);
 
+    // Initial Load Logic
     useEffect(() => {
         if (isAuthLoading) return;
 
-        if (profile) {
-            if (profile.role === 'admin') {
-                fetchUsers();
-                
-                const channel = supabase
-                .channel('admin-dashboard-users')
-                .on(
-                    'postgres_changes',
-                    { event: '*', schema: 'public', table: 'profiles' },
-                    (payload) => {
-                        if (payload.eventType === 'INSERT') {
-                            setUsers((prev) => [payload.new as UserProfile, ...prev]);
-                        } else if (payload.eventType === 'UPDATE') {
-                            setUsers((prev) => prev.map((u) => (u.id === payload.new.id ? (payload.new as UserProfile) : u)));
-                        } else if (payload.eventType === 'DELETE') {
-                             setUsers((prev) => prev.filter((u) => u.id !== payload.old.id));
-                        }
-                    }
-                )
-                .subscribe();
+        // Check if user is admin
+        const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
 
-                return () => {
-                    supabase.removeChannel(channel);
-                };
-            } else {
-                navigate('home');
-            }
-            return;
-        }
-
-        if (user?.user_metadata?.role === 'admin') {
+        if (isAdmin) {
             fetchUsers();
+            // Note: Removed Realtime subscription to prevent loading loops/flickering.
+            // Using manual refresh is safer for stability.
+        } else {
+            // Not authorized
+            navigate('home');
         }
-        
-    }, [profile, user, isAuthLoading, navigate]);
+    }, [isAuthLoading, profile, user, navigate, fetchUsers]);
 
     const isConfirmedAdmin = profile?.role === 'admin' || (!profile && user?.user_metadata?.role === 'admin');
 
@@ -105,57 +84,53 @@ const AdminDashboard: React.FC = () => {
         if (!isAuthLoading && !isConfirmedAdmin && user && !profile) {
              return (
                 <div className="h-full w-full flex flex-col items-center justify-center space-y-4">
-                     <LoadingSpinner text="Đang đồng bộ quyền quản trị..." subText="Dữ liệu Profile đang cập nhật." />
-                     <button onClick={() => window.location.reload()} className="text-sky-600 hover:underline text-sm">
-                         Tải lại trang nếu chờ quá lâu
-                     </button>
+                     <LoadingSpinner text="Đang đồng bộ quyền quản trị..." subText="Vui lòng đợi..." />
                 </div>
              );
         }
-
         return (
             <div className="h-full w-full flex items-center justify-center">
-                <LoadingSpinner text="Đang xác thực quyền Admin..." />
+                <LoadingSpinner text="Đang xác thực..." />
             </div>
         );
     }
 
     const handleUpdateStatus = async (userId: string, newStatus: 'active' | 'blocked') => {
         try {
+            // Optimistic update
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
             const { error } = await supabase.from('profiles').update({ status: newStatus }).eq('id', userId);
-            if (error) { fetchUsers(); throw error; }
+            if (error) { 
+                fetchUsers(); // Revert on error
+                throw error; 
+            }
         } catch (err: any) { alert(`Lỗi cập nhật: ${err.message}`); }
     };
 
-    // LOGIC CẬP NHẬT QUYỀN MỚI (Dùng RPC để đồng bộ Metadata và DB)
     const handleUpdateRole = async (userId: string, newRole: 'student' | 'teacher' | 'admin') => {
         const confirmMsg = newRole === 'admin' 
-            ? "CẢNH BÁO: Bạn sắp cấp quyền QUẢN TRỊ VIÊN cho tài khoản này. Họ sẽ có toàn quyền kiểm soát hệ thống. Bạn có chắc chắn không?"
-            : `Bạn có chắc chắn muốn đổi vai trò người dùng này thành ${newRole === 'teacher' ? 'Giáo viên' : 'Học sinh'} không?`;
+            ? "CẢNH BÁO: Bạn sắp cấp quyền QUẢN TRỊ VIÊN cho tài khoản này. Họ sẽ có toàn quyền kiểm soát hệ thống."
+            : `Đổi vai trò người dùng này thành ${newRole === 'teacher' ? 'Giáo viên' : 'Học sinh'}?`;
 
         if (!window.confirm(confirmMsg)) return;
 
         try {
-            // Cập nhật UI ngay lập tức (Optimistic UI)
+            // Optimistic update
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
 
-            // Gọi hàm RPC 'update_user_role' trên Supabase
-            // Hàm này sẽ cập nhật cả bảng 'profiles' VÀ 'auth.users.raw_user_meta_data'
             const { error: rpcError } = await supabase.rpc('update_user_role', {
                 target_user_id: userId,
                 new_role: newRole
             });
 
             if (rpcError) {
-                // Nếu hàm RPC chưa được tạo, thử fallback về cách cũ (nhưng sẽ cảnh báo)
-                console.warn("RPC update_user_role chưa được tạo. Đang dùng phương pháp cập nhật bảng profiles thông thường (Có thể bị reset quyền). Vui lòng chạy SQL trong README.");
+                console.warn("RPC update_user_role error, falling back to direct update:", rpcError);
                 const { error: tableError } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
                 if (tableError) throw tableError;
             }
         } catch (err: any) { 
-            alert(`Lỗi cập nhật vai trò: ${err.message}. Hãy đảm bảo bạn đã chạy SQL tạo hàm update_user_role.`); 
-            fetchUsers(); // Revert UI on error
+            alert(`Lỗi cập nhật vai trò: ${err.message}`); 
+            fetchUsers(); 
         }
     };
 
@@ -187,12 +162,17 @@ const AdminDashboard: React.FC = () => {
                 <div>
                     <h1 className="text-3xl font-bold text-slate-800">Tổng quan Hệ thống</h1>
                     <p className="text-slate-500 mt-1">
-                        Quản lý người dùng thời gian thực. 
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                             <span className="w-2 h-2 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
-                             Live
-                        </span>
+                        Quản lý người dùng.
                     </p>
+                </div>
+                <div className="mt-4 md:mt-0">
+                    <button 
+                        onClick={fetchUsers}
+                        className="flex items-center px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 shadow-sm transition-colors"
+                    >
+                        <ArrowRightCircleIcon className="h-5 w-5 mr-2" />
+                        Làm mới dữ liệu
+                    </button>
                 </div>
             </div>
 
@@ -245,6 +225,9 @@ const AdminDashboard: React.FC = () => {
                 {error && (
                     <div className="bg-red-50 text-red-600 p-4 m-6 rounded-lg border border-red-100">
                         {error}
+                        <div className="mt-2 text-sm text-red-500">
+                            Gợi ý: Hãy chạy SQL trong file README.md mục "SỬA LỖI: Dashboard Admin bị treo"
+                        </div>
                     </div>
                 )}
 

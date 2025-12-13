@@ -7,55 +7,46 @@ Dưới đây là hướng dẫn đầy đủ để bạn có thể chạy dự 
 
 ---
 
-## 🛠 SỬA LỖI: Dashboard Admin hiện số 0 (Không thấy người dùng)
+## 🛠 SỬA LỖI: Dashboard Admin bị treo (Loading mãi mãi)
 
-Nếu bạn vào trang Quản trị mà thấy **Tổng người dùng = 0** và danh sách trống trơn, đó là do Database đang chặn quyền xem. Hãy chạy đoạn SQL này để cấp quyền cho Admin:
+Vấn đề này do Database bị vòng lặp vô hạn khi kiểm tra quyền. Hãy chạy đoạn SQL tối ưu này để sửa triệt để (Sử dụng Metadata thay vì Query):
 
 ```sql
--- 1. Bật tính năng bảo mật RLS (Nếu chưa bật)
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+-- 1. Tắt RLS tạm thời để reset
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
 
--- 2. Xóa các chính sách cũ (để tránh xung đột)
+-- 2. Xóa hết chính sách cũ gây lỗi
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Admins can view all profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Admins can update all profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Enable users to view own profile or admins to view all" ON public.profiles;
-DROP POLICY IF EXISTS "Enable users to update own profile or admins to update all" ON public.profiles;
+DROP POLICY IF EXISTS "View Profiles Policy" ON public.profiles;
+DROP POLICY IF EXISTS "Update Profiles Policy" ON public.profiles;
 
--- 3. Tạo chính sách MỚI: Ai được XEM dữ liệu?
--- Quy tắc: Học sinh chỉ xem được mình. Admin xem được TẤT CẢ.
-CREATE POLICY "View Profiles Policy"
+-- 3. Tạo chính sách SIÊU TỐC (Dùng Metadata)
+-- Thay vì query bảng profiles (chậm), ta kiểm tra trực tiếp thông tin đăng nhập (nhanh)
+
+-- CHO PHÉP XEM:
+CREATE POLICY "Optimized View Policy"
 ON public.profiles FOR SELECT
 USING (
-  auth.uid() = id -- Xem chính mình
+  -- User xem chính mình
+  auth.uid() = id 
   OR 
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' -- Admin xem tất cả
+  -- Admin xem tất cả (Lấy role từ metadata JWT, không query DB)
+  (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
 );
 
--- 4. Tạo chính sách MỚI: Ai được SỬA dữ liệu?
--- Quy tắc: Học sinh sửa được mình. Admin sửa được TẤT CẢ.
-CREATE POLICY "Update Profiles Policy"
+-- CHO PHÉP SỬA:
+CREATE POLICY "Optimized Update Policy"
 ON public.profiles FOR UPDATE
 USING (
   auth.uid() = id 
   OR 
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+  (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
 );
 
--- 5. ĐỒNG BỘ DỮ LIỆU CŨ (Rất quan trọng)
--- Nếu bạn tạo User trước khi có Trigger, họ sẽ không hiện trong bảng profiles.
--- Lệnh này sẽ copy họ từ Auth sang Profiles.
-INSERT INTO public.profiles (id, email, role, status, full_name, avatar_url)
-SELECT 
-    id, 
-    email, 
-    COALESCE(raw_user_meta_data->>'role', 'student'),
-    'active',
-    raw_user_meta_data->>'full_name',
-    raw_user_meta_data->>'avatar_url'
-FROM auth.users
-WHERE id NOT IN (SELECT id FROM public.profiles);
+-- 4. Bật lại bảo mật
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ```
 
 ---
