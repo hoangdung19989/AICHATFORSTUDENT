@@ -1,7 +1,8 @@
+
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigation } from '../../contexts/NavigationContext';
-import { AcademicCapIcon, RocketLaunchIcon, ChatBubbleBottomCenterTextIcon, PencilSquareIcon, DocumentTextIcon, ClockIcon } from '../icons';
+import { AcademicCapIcon, RocketLaunchIcon, ChatBubbleBottomCenterTextIcon, PencilSquareIcon, DocumentTextIcon, ClockIcon, KeyIcon } from '../icons';
 
 const HomePage: React.FC = () => {
     const { user, profile } = useAuth();
@@ -10,16 +11,17 @@ const HomePage: React.FC = () => {
     const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'bạn';
     // Use profile role if available, else metadata
     const isTeacher = (profile?.role || user?.user_metadata?.role) === 'teacher';
+    const isAdmin = profile?.role === 'admin';
     const isPending = profile?.status === 'pending';
 
-    const FeatureButton: React.FC<{ icon: React.ElementType, title: string, description: string, onClick: () => void, disabled?: boolean }> = ({ icon: Icon, title, description, onClick, disabled }) => (
+    const FeatureButton: React.FC<{ icon: React.ElementType, title: string, description: string, onClick: () => void, disabled?: boolean, color?: string }> = ({ icon: Icon, title, description, onClick, disabled, color = 'bg-sky-100 text-sky-600' }) => (
         <button 
             onClick={onClick} 
             disabled={disabled}
             className={`text-left p-6 bg-white rounded-xl shadow-sm border border-slate-200 group transition-all duration-300 ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:shadow-lg hover:-translate-y-1'}`}
         >
             <div className="flex items-center space-x-4">
-                <div className={`p-3 rounded-lg ${disabled ? 'bg-slate-100 text-slate-400' : 'bg-sky-100 text-sky-600'}`}>
+                <div className={`p-3 rounded-lg ${disabled ? 'bg-slate-100 text-slate-400' : color}`}>
                     <Icon className="h-7 w-7" />
                 </div>
                 <div>
@@ -37,7 +39,9 @@ const HomePage: React.FC = () => {
                     Chào mừng trở lại, {userName}!
                 </h1>
                 <p className="mt-2 text-slate-500 text-lg">
-                    {isTeacher ? 'Chúc thầy/cô một ngày làm việc hiệu quả.' : 'Sẵn sàng để chinh phục những đỉnh cao kiến thức mới chưa?'}
+                    {isAdmin ? 'Chào quản trị viên. Hệ thống đang hoạt động ổn định.' : 
+                     isTeacher ? 'Chúc thầy/cô một ngày làm việc hiệu quả.' : 
+                     'Sẵn sàng để chinh phục những đỉnh cao kiến thức mới chưa?'}
                 </p>
                 {isTeacher && isPending && (
                     <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center text-yellow-800">
@@ -48,7 +52,20 @@ const HomePage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {!isTeacher && (
+                
+                {/* Admin Features */}
+                {isAdmin && (
+                    <FeatureButton 
+                        icon={KeyIcon}
+                        title="Quản trị hệ thống"
+                        description="Quản lý người dùng, phân quyền và duyệt tài khoản."
+                        color="bg-red-100 text-red-600"
+                        onClick={() => navigate('admin-dashboard')}
+                    />
+                )}
+
+                {/* Student Features */}
+                {!isTeacher && !isAdmin && (
                     <>
                         <FeatureButton 
                             icon={AcademicCapIcon}
@@ -65,6 +82,7 @@ const HomePage: React.FC = () => {
                     </>
                 )}
 
+                {/* Teacher Features */}
                 {isTeacher && (
                     <>
                          <FeatureButton 

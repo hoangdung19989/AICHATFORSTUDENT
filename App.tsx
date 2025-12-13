@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 // FIX: Corrected import path for ChatMessage type
 import type { ChatMessage } from './types/index';
@@ -155,7 +156,7 @@ const AIChatPopup: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
 
 // --- Main App Component ---
 const AppContent: React.FC = () => {
-  const { user, isLoading } = useAuth();
+  const { user, profile, isLoading } = useAuth();
   const { currentView, navigate } = useNavigation();
 
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -177,16 +178,20 @@ const AppContent: React.FC = () => {
     
     const isRecovery = window.location.hash.includes('type=recovery');
 
-    // If logged in and currently on login page, go home
+    // Nếu đã đăng nhập và đang ở trang login -> Chuyển hướng
     if (user && currentView === 'login' && !isRecovery) {
-      navigate('home');
+      if (profile?.role === 'admin') {
+          navigate('admin-dashboard');
+      } else {
+          navigate('home');
+      }
     }
 
-    // If NOT logged in and NOT on a public page (login, update-password), FORCE login
+    // Nếu CHƯA đăng nhập và KHÔNG ở trang public -> Bắt đăng nhập
     if (!user && currentView !== 'login' && currentView !== 'update-password') {
        navigate('login');
     }
-  }, [user, isLoading, currentView, navigate]);
+  }, [user, profile, isLoading, currentView, navigate]);
 
   const renderAuthenticatedView = () => {
     switch (currentView) {
@@ -248,7 +253,11 @@ const AppContent: React.FC = () => {
       return <UpdatePasswordView onPasswordUpdated={() => navigate('home')} />;
     }
     // Default to Login View for any other unauthenticated state
-    return <LoginView onLoginSuccess={() => navigate('home')} />;
+    return <LoginView onLoginSuccess={() => {
+        // Redirect logic is handled by useEffect above, but we trigger a re-check
+        // This callback can remain empty or explicitly navigate based on user_metadata if needed immediately
+        // navigate('home') is removed here to let useEffect handle role-based redirect
+    }} />;
   }
 
   // 3. Authenticated State (Full App Layout)
