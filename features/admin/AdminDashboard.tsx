@@ -128,6 +128,7 @@ const AdminDashboard: React.FC = () => {
         } catch (err: any) { alert(`Lỗi cập nhật: ${err.message}`); }
     };
 
+    // LOGIC CẬP NHẬT QUYỀN MỚI (Dùng RPC để đồng bộ Metadata và DB)
     const handleUpdateRole = async (userId: string, newRole: 'student' | 'teacher' | 'admin') => {
         const confirmMsg = newRole === 'admin' 
             ? "CẢNH BÁO: Bạn sắp cấp quyền QUẢN TRỊ VIÊN cho tài khoản này. Họ sẽ có toàn quyền kiểm soát hệ thống. Bạn có chắc chắn không?"
@@ -136,10 +137,26 @@ const AdminDashboard: React.FC = () => {
         if (!window.confirm(confirmMsg)) return;
 
         try {
+            // Cập nhật UI ngay lập tức (Optimistic UI)
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
-            const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
-            if (error) { fetchUsers(); throw error; }
-        } catch (err: any) { alert(`Lỗi cập nhật vai trò: ${err.message}`); }
+
+            // Gọi hàm RPC 'update_user_role' trên Supabase
+            // Hàm này sẽ cập nhật cả bảng 'profiles' VÀ 'auth.users.raw_user_meta_data'
+            const { error: rpcError } = await supabase.rpc('update_user_role', {
+                target_user_id: userId,
+                new_role: newRole
+            });
+
+            if (rpcError) {
+                // Nếu hàm RPC chưa được tạo, thử fallback về cách cũ (nhưng sẽ cảnh báo)
+                console.warn("RPC update_user_role chưa được tạo. Đang dùng phương pháp cập nhật bảng profiles thông thường (Có thể bị reset quyền). Vui lòng chạy SQL trong README.");
+                const { error: tableError } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+                if (tableError) throw tableError;
+            }
+        } catch (err: any) { 
+            alert(`Lỗi cập nhật vai trò: ${err.message}. Hãy đảm bảo bạn đã chạy SQL tạo hàm update_user_role.`); 
+            fetchUsers(); // Revert UI on error
+        }
     };
 
     const filteredUsers = useMemo(() => {

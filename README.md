@@ -9,15 +9,47 @@ Dưới đây là hướng dẫn đầy đủ để bạn có thể chạy dự 
 
 ## QUAN TRỌNG: Cấu hình Quyền Admin & RLS
 
-Để trang **Admin Dashboard** hoạt động, bạn phải chạy câu lệnh SQL sau trong **Supabase SQL Editor**:
+Để tránh việc tài khoản Admin bị **tự động quay về quyền học sinh**, bạn cần chạy đoạn SQL sau để tạo hàm đồng bộ dữ liệu:
+
+### Bước 1: Chạy SQL tạo hàm `update_user_role`
+Vào **Supabase Dashboard** -> **SQL Editor** -> **New Query** và chạy:
+
+```sql
+-- Hàm này cập nhật quyền ở cả 2 nơi: Bảng profiles và Auth Metadata
+-- Giúp ngăn chặn việc quyền bị reset khi đăng nhập lại
+CREATE OR REPLACE FUNCTION update_user_role(
+  target_user_id uuid,
+  new_role text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER -- Chạy với quyền Admin tối cao
+SET search_path = public
+AS $$
+BEGIN
+  -- 1. Cập nhật trong bảng dữ liệu (public.profiles)
+  UPDATE public.profiles
+  SET role = new_role
+  WHERE id = target_user_id;
+
+  -- 2. Cập nhật trong Auth Metadata (auth.users)
+  -- Bước này cực quan trọng để đồng bộ session
+  UPDATE auth.users
+  SET raw_user_meta_data = 
+    COALESCE(raw_user_meta_data, '{}'::jsonb) || 
+    jsonb_build_object('role', new_role)
+  WHERE id = target_user_id;
+END;
+$$;
+```
+
+### Bước 2: Cấu hình RLS (Nếu chưa làm)
 
 ```sql
 -- 1. Cấp quyền cho Admin xem và sửa tất cả profiles
--- Xóa policy cũ (chỉ cho phép xem chính mình)
 DROP POLICY IF EXISTS "Enable users to view their own data only" ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 
--- Tạo policy mới cho phép SELECT (Xem)
 CREATE POLICY "Enable users to view own profile or admins to view all"
 ON public.profiles FOR SELECT
 USING (
@@ -26,7 +58,6 @@ USING (
   (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' -- Admin xem tất cả
 );
 
--- Tạo policy mới cho phép UPDATE (Sửa status/role)
 CREATE POLICY "Enable users to update own profile or admins to update all"
 ON public.profiles FOR UPDATE
 USING (
@@ -35,7 +66,7 @@ USING (
   (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' -- Admin sửa tất cả
 );
 
--- 2. Thăng cấp tài khoản của BẠN lên Admin
+-- 2. Thăng cấp tài khoản của BẠN lên Admin (Chạy 1 lần duy nhất)
 -- Thay 'email_cua_ban@gmail.com' bằng email bạn đã đăng ký
 UPDATE public.profiles
 SET role = 'admin', status = 'active'
