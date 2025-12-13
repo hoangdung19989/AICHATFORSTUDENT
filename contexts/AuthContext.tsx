@@ -52,6 +52,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   };
 
+  // --- SELF HEALING LOGIC ---
+  // Tự động sửa metadata của user nếu nó không khớp với profile trong DB
+  // Giúp khắc phục tình trạng Admin bị nhận diện nhầm là Student
+  useEffect(() => {
+      if (user && profile) {
+          const metaRole = user.user_metadata?.role;
+          const dbRole = profile.role;
+
+          // Nếu DB là Admin mà Metadata khác Admin -> Force update Metadata
+          if (dbRole === 'admin' && metaRole !== 'admin') {
+              console.log(`[AuthFix] Detected role mismatch. DB: ${dbRole}, Meta: ${metaRole}. Fixing...`);
+              supabase.auth.updateUser({
+                  data: { role: 'admin' }
+              }).then(({ data, error }) => {
+                  if (!error && data.user) {
+                      setUser(data.user);
+                      console.log("[AuthFix] Metadata updated to Admin.");
+                  }
+              });
+          }
+      }
+  }, [user, profile]);
+
   useEffect(() => {
     let mounted = true;
 

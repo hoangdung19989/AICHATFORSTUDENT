@@ -7,115 +7,86 @@ Dưới đây là hướng dẫn đầy đủ để bạn có thể chạy dự 
 
 ---
 
-## QUAN TRỌNG: Cấu hình Quyền Admin & RLS
+## 🛠 SỬA LỖI: Không xóa được User (Database Error)
 
-Để tránh việc tài khoản Admin bị **tự động quay về quyền học sinh**, bạn cần chạy đoạn SQL sau để tạo hàm đồng bộ dữ liệu:
-
-### Bước 1: Chạy SQL tạo hàm `update_user_role`
-Vào **Supabase Dashboard** -> **SQL Editor** -> **New Query** và chạy:
+Nếu bạn gặp lỗi **"Database error deleting user"** khi xóa tài khoản trong Supabase Dashboard, hãy chạy đoạn SQL này trong **SQL Editor**. Nó sẽ cho phép khi xóa tài khoản thì tự động xóa luôn hồ sơ, điểm thi và lịch sử làm bài của người đó.
 
 ```sql
--- Hàm này cập nhật quyền ở cả 2 nơi: Bảng profiles và Auth Metadata
--- Giúp ngăn chặn việc quyền bị reset khi đăng nhập lại
-CREATE OR REPLACE FUNCTION update_user_role(
-  target_user_id uuid,
-  new_role text
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER -- Chạy với quyền Admin tối cao
-SET search_path = public
-AS $$
+-- 1. Sửa bảng profiles (Xóa user -> Tự động xóa profile)
+ALTER TABLE public.profiles
+DROP CONSTRAINT IF EXISTS profiles_id_fkey;
+
+ALTER TABLE public.profiles
+ADD CONSTRAINT profiles_id_fkey
+FOREIGN KEY (id)
+REFERENCES auth.users (id)
+ON DELETE CASCADE;
+
+-- 2. Sửa bảng kết quả thi (exam_results)
+ALTER TABLE public.exam_results
+DROP CONSTRAINT IF EXISTS exam_results_user_id_fkey;
+
+ALTER TABLE public.exam_results
+ADD CONSTRAINT exam_results_user_id_fkey
+FOREIGN KEY (user_id)
+REFERENCES auth.users (id)
+ON DELETE CASCADE;
+
+-- 3. Sửa bảng lịch sử làm bài (question_attempts)
+ALTER TABLE public.question_attempts
+DROP CONSTRAINT IF EXISTS question_attempts_user_id_fkey;
+
+ALTER TABLE public.question_attempts
+ADD CONSTRAINT question_attempts_user_id_fkey
+FOREIGN KEY (user_id)
+REFERENCES auth.users (id)
+ON DELETE CASCADE;
+```
+
+---
+
+## QUAN TRỌNG: Cách tạo tài khoản Admin chuẩn (Tránh lỗi mất quyền)
+
+Để đảm bảo tài khoản Admin hoạt động ổn định và không bị tự động chuyển về quyền học sinh, bạn hãy làm theo các bước sau trực tiếp trên Supabase Dashboard:
+
+### Bước 1: Tạo User mới trong Supabase
+1. Vào **Supabase Dashboard** -> **Authentication** -> **Users**.
+2. Bấm **Add User**.
+3. Điền Email (ví dụ: `admin@onluyen.vn`) và Mật khẩu.
+4. Tích chọn **Auto Confirm User** (để bỏ qua bước xác thực email).
+5. Bấm **Create User**.
+
+### Bước 2: Chạy SQL để cấp quyền Admin (Hard Force)
+Vào **SQL Editor** -> **New Query** và chạy đoạn lệnh sau (Thay đổi email thành email bạn vừa tạo):
+
+```sql
+DO $$
+DECLARE
+    target_email TEXT := 'admin@onluyen.vn'; -- THAY EMAIL CỦA BẠN Ở ĐÂY
 BEGIN
-  -- 1. Cập nhật trong bảng dữ liệu (public.profiles)
-  UPDATE public.profiles
-  SET role = new_role
-  WHERE id = target_user_id;
+    -- 1. Cập nhật bảng dữ liệu profiles
+    -- (Nếu user chưa có trong bảng profiles, trigger sẽ tự tạo, lệnh update này đảm bảo quyền đúng)
+    UPDATE public.profiles
+    SET role = 'admin', status = 'active'
+    WHERE email = target_email;
 
-  -- 2. Cập nhật trong Auth Metadata (auth.users)
-  -- Bước này cực quan trọng để đồng bộ session
-  UPDATE auth.users
-  SET raw_user_meta_data = 
-    COALESCE(raw_user_meta_data, '{}'::jsonb) || 
-    jsonb_build_object('role', new_role)
-  WHERE id = target_user_id;
-END;
-$$;
-```
-
-### Bước 2: Cấu hình RLS (Nếu chưa làm)
-
-```sql
--- 1. Cấp quyền cho Admin xem và sửa tất cả profiles
-DROP POLICY IF EXISTS "Enable users to view their own data only" ON public.profiles;
-DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
-
-CREATE POLICY "Enable users to view own profile or admins to view all"
-ON public.profiles FOR SELECT
-USING (
-  auth.uid() = id -- Xem chính mình
-  OR 
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' -- Admin xem tất cả
-);
-
-CREATE POLICY "Enable users to update own profile or admins to update all"
-ON public.profiles FOR UPDATE
-USING (
-  auth.uid() = id -- Sửa chính mình
-  OR 
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' -- Admin sửa tất cả
-);
-
--- 2. Thăng cấp tài khoản của BẠN lên Admin (Chạy 1 lần duy nhất)
--- Thay 'email_cua_ban@gmail.com' bằng email bạn đã đăng ký
-UPDATE public.profiles
-SET role = 'admin', status = 'active'
-WHERE email = 'email_cua_ban@gmail.com';
+    -- 2. Cập nhật Metadata ẩn của Auth (Bước quan trọng nhất để sửa lỗi nhảy quyền)
+    UPDATE auth.users
+    SET raw_user_meta_data = 
+        COALESCE(raw_user_meta_data, '{}'::jsonb) || 
+        jsonb_build_object('role', 'admin')
+    WHERE email = target_email;
+END $$;
 ```
 
 ---
 
-## 1. Yêu cầu hệ thống
+## 2. Cấu hình RLS & Trigger (Bắt buộc cho lần đầu)
 
-- **Node.js**: Phiên bản 18.x trở lên.
-- **npm** (hoặc yarn, pnpm): Trình quản lý gói của Node.js.
-- **Tài khoản GitHub**: Để lưu trữ mã nguồn và kết nối với Vercel.
-- **Tài khoản Vercel**: Để triển khai ứng dụng.
-
----
-
-## 2. Lấy API Key & Cấu hình Dịch vụ
-
-### A. Lấy Google Gemini API Key
-1.  Truy cập [Google AI Studio](https://aistudio.google.com/app/apikey).
-2.  Đăng nhập và nhấp vào **"Create API key"**.
-3.  Lưu lại key này.
-
-### B. Cấu hình Supabase (Cơ sở dữ liệu & Đăng nhập)
-1.  Truy cập [supabase.com](https://supabase.com) và tạo một Project mới.
-2.  **Lấy Key kết nối:**
-    *   Vào **Settings** (Bánh răng) -> **API**.
-    *   Copy **Project URL**.
-    *   Copy **anon public** Key.
-3.  **Bật Đăng ký qua Email:**
-    *   Vào **Authentication** -> **Providers** -> **Email**.
-    *   Bật (Enable) nhà cung cấp này.
-    *   **Bỏ chọn** mục **"Confirm email"** (Khuyên dùng để test nhanh, không cần xác thực).
-4.  **Cấu hình URL Khôi phục Mật khẩu (QUAN TRỌNG):**
-    *   Vẫn trong mục **Authentication**, vào **URL Configuration**.
-    *   Trong ô **Site URL**, hãy điền địa chỉ trang web của bạn (VD: `http://localhost:5173` khi chạy local, hoặc `https://your-app-name.vercel.app` khi đã deploy).
-    *   Bấm **Save**.
-5.  **Cập nhật Cấu trúc Bảng (Columns):**
-    *   Vào **Table Editor**:
-    *   **Bảng `exam_results`**: Thêm cột `exam_type` (Kiểu: `text`).
-    *   **Bảng `question_attempts`**: Thêm cột `grade` (Kiểu: `text`) và `exam_type` (Kiểu: `text`).
-    *   **Bảng `profiles`**: 
-        *   Thêm cột `role` (Kiểu: `text`, mặc định là `student`).
-        *   Thêm cột `status` (Kiểu: `text`, mặc định là `active`).
-6.  **Cấu hình Trigger (Tự động tạo profile):**
-    Chạy lệnh này trong SQL Editor để đảm bảo user mới đăng ký sẽ được thêm vào bảng profiles:
+Chạy đoạn SQL sau để đảm bảo hệ thống bảo mật và tự động tạo profile khi user đăng ký:
 
 ```sql
+-- 1. Hàm tạo Profile tự động
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -126,6 +97,7 @@ begin
   values (
     new.id, 
     new.email, 
+    -- Ưu tiên role trong metadata nếu có, nếu không thì mặc định là student
     COALESCE(new.raw_user_meta_data ->> 'role', 'student'),
     CASE 
         WHEN (new.raw_user_meta_data ->> 'role') = 'teacher' THEN 'pending'
@@ -142,6 +114,22 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- 2. Hàm hỗ trợ Admin đổi quyền User (RPC)
+CREATE OR REPLACE FUNCTION update_user_role(
+  target_user_id uuid,
+  new_role text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.profiles SET role = new_role WHERE id = target_user_id;
+  UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('role', new_role) WHERE id = target_user_id;
+END;
+$$;
 ```
 
 ---
