@@ -15,7 +15,8 @@ import {
     KeyIcon,
     UserGroupIcon,
     ClockIcon,
-    ShieldCheckIcon
+    ShieldCheckIcon,
+    BriefcaseIcon
 } from '../../components/icons';
 
 const StatCard: React.FC<{ title: string; value: number; icon: React.ElementType; color: string }> = ({ title, value, icon: Icon, color }) => (
@@ -35,7 +36,7 @@ const AdminDashboard: React.FC = () => {
     const { profile, user, isLoading: isAuthLoading } = useAuth();
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [isLoadingData, setIsLoadingData] = useState(true);
-    const [filterRole, setFilterRole] = useState<'all' | 'teacher' | 'student'>('all');
+    const [filterRole, setFilterRole] = useState<'all' | 'teacher' | 'student' | 'admin'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
 
@@ -62,12 +63,10 @@ const AdminDashboard: React.FC = () => {
     useEffect(() => {
         if (isAuthLoading) return;
 
-        // ƯU TIÊN 1: Profile chính thức từ Database (Chính xác nhất)
         if (profile) {
             if (profile.role === 'admin') {
                 fetchUsers();
                 
-                // --- REALTIME: Tự động cập nhật danh sách khi có người đăng ký mới ---
                 const channel = supabase
                 .channel('admin-dashboard-users')
                 .on(
@@ -89,31 +88,21 @@ const AdminDashboard: React.FC = () => {
                     supabase.removeChannel(channel);
                 };
             } else {
-                // Nếu Profile đã tải xong mà KHÔNG phải Admin -> Chuyển trang
                 navigate('home');
             }
             return;
         }
 
-        // ƯU TIÊN 2: Metadata (Dự phòng nhanh)
-        // Chỉ dùng metadata nếu nó cho phép vào (role=admin).
-        // Nếu metadata=teacher/student, ta KHÔNG chuyển trang ngay mà chờ Profile tải xong
-        // để tránh trường hợp người dùng vừa được cấp quyền Admin nhưng metadata chưa cập nhật.
         if (user?.user_metadata?.role === 'admin') {
             fetchUsers();
         }
         
     }, [profile, user, isAuthLoading, navigate]);
 
-    // LOGIC RENDER AN TOÀN:
-    // Chỉ hiển thị nội dung nếu CHẮC CHẮN là Admin.
-    // Nếu chưa chắc chắn (Profile null, Metadata không phải admin), cứ hiện Loading.
-    // Đừng redirect vội vàng.
     const isConfirmedAdmin = profile?.role === 'admin' || (!profile && user?.user_metadata?.role === 'admin');
 
     if (isAuthLoading || !isConfirmedAdmin) {
         if (!isAuthLoading && !isConfirmedAdmin && user && !profile) {
-             // Trường hợp Profile bị lỗi không tải được lâu quá
              return (
                 <div className="h-full w-full flex flex-col items-center justify-center space-y-4">
                      <LoadingSpinner text="Đang đồng bộ quyền quản trị..." subText="Dữ liệu Profile đang cập nhật." />
@@ -133,21 +122,24 @@ const AdminDashboard: React.FC = () => {
 
     const handleUpdateStatus = async (userId: string, newStatus: 'active' | 'blocked') => {
         try {
-            // Optimistic update
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+            const { error } = await supabase.from('profiles').update({ status: newStatus }).eq('id', userId);
+            if (error) { fetchUsers(); throw error; }
+        } catch (err: any) { alert(`Lỗi cập nhật: ${err.message}`); }
+    };
 
-            const { error } = await supabase
-                .from('profiles')
-                .update({ status: newStatus })
-                .eq('id', userId);
+    const handleUpdateRole = async (userId: string, newRole: 'student' | 'teacher' | 'admin') => {
+        const confirmMsg = newRole === 'admin' 
+            ? "CẢNH BÁO: Bạn sắp cấp quyền QUẢN TRỊ VIÊN cho tài khoản này. Họ sẽ có toàn quyền kiểm soát hệ thống. Bạn có chắc chắn không?"
+            : `Bạn có chắc chắn muốn đổi vai trò người dùng này thành ${newRole === 'teacher' ? 'Giáo viên' : 'Học sinh'} không?`;
 
-            if (error) {
-                fetchUsers(); // Revert on error
-                throw error;
-            }
-        } catch (err: any) {
-            alert(`Lỗi cập nhật: ${err.message}`);
-        }
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+            const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+            if (error) { fetchUsers(); throw error; }
+        } catch (err: any) { alert(`Lỗi cập nhật vai trò: ${err.message}`); }
     };
 
     const filteredUsers = useMemo(() => {
@@ -165,8 +157,8 @@ const AdminDashboard: React.FC = () => {
             total: users.length,
             teachers: users.filter(u => u.role === 'teacher').length,
             students: users.filter(u => u.role === 'student').length,
+            admins: users.filter(u => u.role === 'admin').length,
             pending: users.filter(u => u.status === 'pending').length,
-            blocked: users.filter(u => u.status === 'blocked').length
         };
     }, [users]);
 
@@ -190,9 +182,9 @@ const AdminDashboard: React.FC = () => {
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <StatCard title="Tổng người dùng" value={stats.total} icon={UserGroupIcon} color="bg-blue-500" />
-                <StatCard title="Giáo viên chờ duyệt" value={stats.pending} icon={ClockIcon} color="bg-amber-500" />
-                <StatCard title="Giáo viên hoạt động" value={stats.teachers - stats.pending} icon={PencilSquareIcon} color="bg-purple-500" />
-                <StatCard title="Học sinh" value={stats.students} icon={AcademicCapIcon} color="bg-green-500" />
+                <StatCard title="Quản trị viên" value={stats.admins} icon={ShieldCheckIcon} color="bg-red-500" />
+                <StatCard title="Giáo viên" value={stats.teachers} icon={PencilSquareIcon} color="bg-purple-500" />
+                <StatCard title="Chờ xét duyệt" value={stats.pending} icon={ClockIcon} color="bg-amber-500" />
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -207,7 +199,6 @@ const AdminDashboard: React.FC = () => {
                     </h2>
                     
                     <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                        {/* Search */}
                         <input 
                             type="text" 
                             placeholder="Tìm theo email hoặc tên..." 
@@ -216,19 +207,18 @@ const AdminDashboard: React.FC = () => {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
 
-                        {/* Filter Buttons */}
-                        <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                            {(['all', 'teacher', 'student'] as const).map((r) => (
+                        <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200 overflow-x-auto">
+                            {(['all', 'admin', 'teacher', 'student'] as const).map((r) => (
                                 <button
                                     key={r}
                                     onClick={() => setFilterRole(r)}
-                                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                                    className={`px-3 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
                                         filterRole === r 
                                         ? 'bg-white text-slate-800 shadow-sm' 
                                         : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'
                                     }`}
                                 >
-                                    {r === 'all' ? 'Tất cả' : r === 'teacher' ? 'Giáo viên' : 'Học sinh'}
+                                    {r === 'all' ? 'Tất cả' : r === 'admin' ? 'Admin' : r === 'teacher' ? 'Giáo viên' : 'Học sinh'}
                                 </button>
                             ))}
                         </div>
@@ -271,7 +261,7 @@ const AdminDashboard: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="flex items-center">
+                                            <div className="flex items-center space-x-2">
                                                 {u.role === 'teacher' ? (
                                                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700 border border-purple-200">
                                                         <PencilSquareIcon className="w-3 h-3 mr-1.5" /> Giáo viên
@@ -285,35 +275,38 @@ const AdminDashboard: React.FC = () => {
                                                         <AcademicCapIcon className="w-3 h-3 mr-1.5" /> Học sinh
                                                     </span>
                                                 )}
+                                                
+                                                {/* Role Switcher (Hidden for self) */}
+                                                {u.id !== user?.id && (
+                                                    <div className="group relative ml-2">
+                                                        <button className="text-slate-400 hover:text-brand-blue">
+                                                            <BriefcaseIcon className="w-4 h-4" />
+                                                        </button>
+                                                        <div className="hidden group-hover:block absolute left-0 top-full mt-1 w-32 bg-white rounded-lg shadow-xl border border-slate-200 z-10 p-1">
+                                                            <div className="text-[10px] text-slate-400 uppercase font-bold px-2 py-1">Đổi vai trò</div>
+                                                            <button onClick={() => handleUpdateRole(u.id, 'student')} className="block w-full text-left px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-100 rounded">Học sinh</button>
+                                                            <button onClick={() => handleUpdateRole(u.id, 'teacher')} className="block w-full text-left px-2 py-1.5 text-xs text-purple-700 hover:bg-purple-50 rounded">Giáo viên</button>
+                                                            <button onClick={() => handleUpdateRole(u.id, 'admin')} className="block w-full text-left px-2 py-1.5 text-xs text-red-700 hover:bg-red-50 rounded font-bold">Admin</button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            {u.status === 'active' && (
-                                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                                                    <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span> Hoạt động
-                                                </span>
-                                            )}
-                                            {u.status === 'pending' && (
-                                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
-                                                    <span className="w-2 h-2 bg-amber-500 rounded-full mr-2"></span> Chờ duyệt
-                                                </span>
-                                            )}
-                                            {u.status === 'blocked' && (
-                                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-300">
-                                                    <span className="w-2 h-2 bg-slate-500 rounded-full mr-2"></span> Đã khóa
-                                                </span>
-                                            )}
+                                            {u.status === 'active' && <span className="text-xs font-bold text-green-600">Hoạt động</span>}
+                                            {u.status === 'pending' && <span className="text-xs font-bold text-amber-600">Chờ duyệt</span>}
+                                            {u.status === 'blocked' && <span className="text-xs font-bold text-red-600">Đã khóa</span>}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            {u.role !== 'admin' && (
+                                            {/* Không cho phép tự khóa/xóa chính mình */}
+                                            {u.id !== user?.id && (
                                                 <div className="flex justify-end space-x-2">
                                                     {u.status === 'pending' && (
                                                         <button 
                                                             onClick={() => handleUpdateStatus(u.id, 'active')}
                                                             className="flex items-center text-green-700 bg-green-100 hover:bg-green-200 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold border border-green-200"
-                                                            title="Duyệt tài khoản"
                                                         >
-                                                            <CheckCircleIcon className="w-4 h-4 mr-1" /> Duyệt ngay
+                                                            <CheckCircleIcon className="w-4 h-4 mr-1" /> Duyệt
                                                         </button>
                                                     )}
                                                     {u.status === 'blocked' ? (
@@ -321,13 +314,12 @@ const AdminDashboard: React.FC = () => {
                                                             onClick={() => handleUpdateStatus(u.id, 'active')}
                                                             className="flex items-center text-sky-700 bg-sky-100 hover:bg-sky-200 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold"
                                                         >
-                                                            <KeyIcon className="w-4 h-4 mr-1" /> Mở khóa
+                                                            <KeyIcon className="w-4 h-4 mr-1" /> Mở
                                                         </button>
                                                     ) : (
                                                         <button 
                                                             onClick={() => handleUpdateStatus(u.id, 'blocked')}
                                                             className="flex items-center text-red-700 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold"
-                                                            title="Khóa tài khoản"
                                                         >
                                                             <XCircleIcon className="w-4 h-4 mr-1" /> Khóa
                                                         </button>

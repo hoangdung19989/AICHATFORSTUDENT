@@ -28,12 +28,44 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
     try {
       if (isLoginView) {
-        // Handle Login
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        // 1. Bước 1: Xác thực Email/Password với Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        
+        if (authError) {
+             if (authError.message === "Invalid login credentials") {
+                 throw new Error("Email hoặc mật khẩu không chính xác.");
+             }
+             throw authError;
+        }
+        
+        // 2. Bước 2: KIỂM TRA TỒN TẠI VÀ TRẠNG THÁI (Logic quan trọng)
+        // Dù password đúng, nếu Admin đã xóa dòng trong bảng 'profiles', ta phải chặn lại.
+        if (authData.user) {
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('status, role')
+                .eq('id', authData.user.id)
+                .single();
+            
+            // LOGIC CHẶN: Nếu không tìm thấy hồ sơ (profileError code PGRST116 hoặc null)
+            if (profileError || !profile) {
+                // Cực kỳ quan trọng: Phải đăng xuất ngay để xóa session vừa tạo ở Bước 1
+                await supabase.auth.signOut(); 
+                throw new Error("Tài khoản này không còn tồn tại trong hệ thống (Đã bị xóa).");
+            }
+
+            // LOGIC CHẶN: Nếu tài khoản bị khóa
+            if (profile.status === 'blocked') {
+                await supabase.auth.signOut();
+                throw new Error("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
+            }
+        }
+
+        // 3. Nếu mọi thứ hợp lệ -> Chuyển vào App
         onLoginSuccess();
+
       } else {
-        // Handle Sign Up
+        // Handle Sign Up (Đăng ký)
         const { data, error } = await supabase.auth.signUp({ 
             email, 
             password,
@@ -48,12 +80,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
         if (data.session) {
             // Auto login logic
-            if (role === 'teacher') {
-                // For teachers, we login but they will see "Pending" screen
-                onLoginSuccess();
-            } else {
-                onLoginSuccess();
-            }
+            onLoginSuccess();
         } else if (data.user) {
             let msg = `Đăng ký tài khoản thành công! `;
             if (role === 'teacher') {
@@ -66,7 +93,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         }
       }
     } catch (err: any) {
-      setError(err.error_description || err.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+        // Hiển thị lỗi rõ ràng cho người dùng
+        setError(err.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
     } finally {
       setIsSubmitting(false);
     }
@@ -157,7 +185,23 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
           
-          {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-100">{error}</p>}
+          {error && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-4">
+                  <div className="flex">
+                      <div className="flex-shrink-0">
+                          <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                          </svg>
+                      </div>
+                      <div className="ml-3">
+                          <p className="text-sm text-red-700 font-medium">
+                              {error}
+                          </p>
+                      </div>
+                  </div>
+              </div>
+          )}
+          
           {message && <p className="text-sm text-green-600 bg-green-50 p-3 rounded-md border border-green-100">{message}</p>}
 
           <div className="flex items-center justify-between">
