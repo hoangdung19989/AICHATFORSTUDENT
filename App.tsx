@@ -17,7 +17,7 @@ import MockExamsFlow from './features/mock-exams/MockExamsFlow';
 import SelfPracticeFlow from './features/self-practice/SelfPracticeFlow';
 import TeacherDashboard from './features/teacher/TeacherDashboard';
 import LessonPlanner from './features/teacher/LessonPlanner';
-import AdminDashboard from './features/admin/AdminDashboard'; // Import AdminDashboard
+import AdminDashboard from './features/admin/AdminDashboard';
 
 import { useAuth } from './contexts/AuthContext';
 import { useNavigation, View } from './contexts/NavigationContext';
@@ -180,7 +180,14 @@ const AppContent: React.FC = () => {
 
     // Nếu đã đăng nhập và đang ở trang login -> Chuyển hướng
     if (user && currentView === 'login' && !isRecovery) {
-      if (profile?.role === 'admin') {
+      
+      // QUAN TRỌNG: Chờ đến khi có profile rồi mới chuyển hướng.
+      // Tránh trường hợp profile chưa load kịp (null) thì bị đẩy về 'home'.
+      if (!profile) {
+         return; 
+      }
+
+      if (profile.role === 'admin') {
           navigate('admin-dashboard');
       } else {
           navigate('home');
@@ -254,13 +261,21 @@ const AppContent: React.FC = () => {
     }
     // Default to Login View for any other unauthenticated state
     return <LoginView onLoginSuccess={() => {
-        // Redirect logic is handled by useEffect above, but we trigger a re-check
-        // This callback can remain empty or explicitly navigate based on user_metadata if needed immediately
-        // navigate('home') is removed here to let useEffect handle role-based redirect
+        // Callback để trống, để useEffect xử lý chuyển hướng dựa trên role
     }} />;
   }
 
-  // 3. Authenticated State (Full App Layout)
+  // 3. State: Đã đăng nhập nhưng đang ở Login View (Đang chờ Redirect)
+  // Fix: Hiển thị loading thay vì render default HomePage để tránh nhấp nháy sai trang.
+  if (currentView === 'login') {
+      return (
+          <div className="h-screen w-full flex items-center justify-center bg-brand-bg">
+              <LoadingSpinner text="Đang kiểm tra quyền truy cập..." subText="Vui lòng đợi trong giây lát." />
+          </div>
+      );
+  }
+
+  // 4. Authenticated State (Full App Layout)
   const isLectureView = currentView === 'lecture-video';
 
   return (
