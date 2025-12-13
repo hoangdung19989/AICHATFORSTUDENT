@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
 export type View = 
-  | 'home' | 'login' | 'update-password' | 'personalized-dashboard' | 'self-study'
+  | 'home' | 'login' | 'admin-login' | 'update-password' | 'personalized-dashboard' | 'self-study'
   | 'teacher-dashboard' | 'lesson-planner' | 'admin-dashboard'
   | 'ai-subjects' | 'ai-tutor'
   | 'lecture-subjects' | 'lecture-grades' | 'lecture-video'

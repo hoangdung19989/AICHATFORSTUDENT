@@ -6,6 +6,7 @@ import Sidebar from './components/layout/Sidebar';
 import HomePage from './components/home/HomePage';
 import AboutModal from './components/modals/AboutModal';
 import LoginView from './components/auth/LoginView';
+import AdminLoginView from './components/auth/AdminLoginView';
 import UpdatePasswordView from './components/auth/UpdatePasswordView';
 import PersonalizedDashboard from './features/personalized-dashboard/PersonalizedDashboardView';
 import SelfStudyDashboard from './features/dashboard/SelfStudyDashboard';
@@ -178,8 +179,8 @@ const AppContent: React.FC = () => {
     
     const isRecovery = window.location.hash.includes('type=recovery');
 
-    // Nếu đã đăng nhập và đang ở trang login -> Chuyển hướng
-    if (user && currentView === 'login' && !isRecovery) {
+    // Nếu đã đăng nhập và đang ở trang login/admin-login -> Chuyển hướng
+    if (user && (currentView === 'login' || currentView === 'admin-login') && !isRecovery) {
       // Logic mới: Không đợi profile nếu nó quá lâu hoặc lỗi.
       // Dùng user_metadata làm phương án dự phòng để chuyển trang ngay.
       const isAdmin = profile?.role === 'admin' || user.user_metadata?.role === 'admin';
@@ -192,7 +193,7 @@ const AppContent: React.FC = () => {
     }
 
     // Nếu CHƯA đăng nhập và KHÔNG ở trang public -> Bắt đăng nhập
-    if (!user && currentView !== 'login' && currentView !== 'update-password') {
+    if (!user && currentView !== 'login' && currentView !== 'admin-login' && currentView !== 'update-password') {
        navigate('login');
     }
   }, [user, profile, isLoading, currentView, navigate]);
@@ -256,18 +257,26 @@ const AppContent: React.FC = () => {
     if (currentView === 'update-password') {
       return <UpdatePasswordView onPasswordUpdated={() => navigate('home')} />;
     }
+    
+    // Check for Admin Portal
+    if (currentView === 'admin-login') {
+        return <AdminLoginView onLoginSuccess={() => {
+            // Callback để trống, useEffect sẽ tự redirect vào Dashboard
+        }} />;
+    }
+
     // Default to Login View for any other unauthenticated state
     return <LoginView onLoginSuccess={() => {
         // Callback để trống, để useEffect xử lý chuyển hướng
     }} />;
   }
 
-  // 3. State: Đã đăng nhập nhưng đang ở Login View (Đang chờ Redirect)
+  // 3. State: Đã đăng nhập nhưng đang ở Login/AdminLogin View (Đang chờ Redirect)
   // Chỉ hiện loading nếu thực sự đang xử lý chuyển hướng, tránh hiện quá lâu
-  if (currentView === 'login') {
+  if (currentView === 'login' || currentView === 'admin-login') {
       return (
           <div className="h-screen w-full flex items-center justify-center bg-brand-bg">
-              <LoadingSpinner text="Đang chuyển hướng..." />
+              <LoadingSpinner text="Đang vào hệ thống..." />
           </div>
       );
   }

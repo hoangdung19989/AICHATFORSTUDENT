@@ -1,6 +1,8 @@
+
 import React, { useState } from 'react';
 import { supabase } from '../../services/supabaseClient';
-import { OnLuyenLogo, AcademicCapIcon, UserCircleIcon } from '../icons';
+import { OnLuyenLogo, AcademicCapIcon, UserCircleIcon, ShieldCheckIcon } from '../icons';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 interface LoginViewProps {
   onLoginSuccess: () => void;
@@ -9,6 +11,7 @@ interface LoginViewProps {
 type UserRole = 'student' | 'teacher';
 
 const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
+  const { navigate } = useNavigation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('student');
@@ -92,8 +95,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-full bg-brand-bg px-4 py-12">
-      <div className="w-full max-w-md space-y-8">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-brand-bg px-4 py-12">
+      <div className="w-full max-w-md space-y-8 flex-1 flex flex-col justify-center">
         <div className="text-center">
             <OnLuyenLogo className="mx-auto h-20 w-auto" />
             <h2 className="mt-6 text-3xl font-bold tracking-tight text-gray-900">
@@ -192,6 +195,16 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 </button>
             </p>
         </div>
+      </div>
+
+      <div className="mt-8 text-center">
+          <button 
+            onClick={() => navigate('admin-login')}
+            className="inline-flex items-center text-xs text-slate-400 hover:text-slate-600 transition-colors border-b border-dashed border-slate-300 pb-0.5"
+          >
+              <ShieldCheckIcon className="w-3 h-3 mr-1" />
+              Truy cập Portal Quản trị (Admin Only)
+          </button>
       </div>
     </div>
   );
