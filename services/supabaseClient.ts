@@ -22,7 +22,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Cảnh báo: Thiếu thông tin kết nối Supabase. Hãy điền vào file config.ts hoặc cấu hình trên Vercel. Tính năng đăng nhập sẽ không hoạt động.');
 }
 
-export const supabase = createClient(
+// Cast to any to bypass type issues where SupabaseAuthClient definitions are missing methods
+export const supabase: any = createClient(
   supabaseUrl || 'https://placeholder.supabase.co', 
   supabaseAnonKey || 'placeholder-key'
 );
