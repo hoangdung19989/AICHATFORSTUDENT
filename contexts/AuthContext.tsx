@@ -33,7 +33,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .single();
           
           if (error) {
-              // Bỏ qua lỗi PGRST116 (không tìm thấy dòng nào) vì có thể trigger chưa chạy xong
               if (error.code !== 'PGRST116') {
                   console.error('Error fetching profile:', error);
               }
@@ -56,28 +55,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // --- AN TOÀN: Tự động tắt loading sau 2 giây (giảm từ 5s) ---
-    // Nếu Database bị treo (infinite loop), app sẽ tự vào sau 2s thay vì xoay mãi.
+    // --- AN TOÀN: Tự động tắt loading sau 2 giây ---
     const timeout = setTimeout(() => {
         if (mounted && isLoading) {
-            console.warn("Auth loading timed out (Database might be slow or stuck) - Forcing app load.");
+            console.warn("Auth loading timed out - Forcing app load.");
             setIsLoading(false);
         }
     }, 2000);
 
     const initAuth = async () => {
         try {
-            // 1. Lấy session hiện tại
             const { data } = await supabase.auth.getSession();
             const currentSession = data?.session;
             
             if (!mounted) return;
 
-            setSession(currentSession);
-            setUser(currentSession?.user ?? null);
-
-            // 2. Nếu đã đăng nhập, lấy thông tin profile
             if (currentSession?.user) {
+                setSession(currentSession);
+                setUser(currentSession.user);
                 const p = await fetchProfile(currentSession.user.id);
                 if (mounted) setProfile(p);
             }
@@ -90,22 +85,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuth();
 
-    // 3. Lắng nghe sự thay đổi (đăng nhập/đăng xuất/token refresh)
-    const { data } = supabase.auth.onAuthStateChange(async (_event: string, session: Session) => {
+    const { data } = supabase.auth.onAuthStateChange(async (event: string, session: Session) => {
       if (!mounted) return;
       
+      // Nếu là sự kiện SIGNED_OUT, ta không cần làm gì nhiều vì hàm signOut đã xử lý state rồi
+      // Điều này tránh xung đột state gây ra loading ảo
+      if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setIsLoading(false);
+          return;
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
-           // Fetch lại profile để đảm bảo dữ liệu mới nhất
            const p = await fetchProfile(session.user.id);
            if (mounted) setProfile(p);
       } else {
           if (mounted) setProfile(null);
       }
       
-      // Luôn tắt loading khi trạng thái thay đổi xong
       if (mounted) setIsLoading(false);
     });
 
@@ -121,12 +123,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = async () => {
-    setIsLoading(true);
-    await supabase.auth.signOut();
-    setProfile(null);
+    // --- OPTIMISTIC UPDATE (Cập nhật lạc quan) ---
+    // 1. Xóa trạng thái ngay lập tức để UI chuyển về trang Login liền
+    // KHÔNG set isLoading(true) ở đây để tránh hiện vòng quay loading
     setUser(null);
+    setProfile(null);
     setSession(null);
-    setIsLoading(false);
+    
+    // 2. Gọi API đăng xuất chạy ngầm (nếu lỗi cũng không ảnh hưởng trải nghiệm thoát của user)
+    try {
+        await supabase.auth.signOut();
+    } catch (error) {
+        console.error("Lỗi đăng xuất ngầm:", error);
+    }
   };
 
   const value = {
