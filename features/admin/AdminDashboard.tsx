@@ -19,7 +19,7 @@ import {
 } from '../../components/icons';
 
 const StatCard: React.FC<{ title: string; value: number; icon: React.ElementType; color: string }> = ({ title, value, icon: Icon, color }) => (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center">
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center transition-transform hover:scale-105 duration-200">
         <div className={`p-4 rounded-lg ${color} bg-opacity-20 mr-4`}>
             <Icon className={`h-8 w-8 ${color.replace('bg-', 'text-')}`} />
         </div>
@@ -60,22 +60,70 @@ const AdminDashboard: React.FC = () => {
     };
 
     useEffect(() => {
-        // Wait for global auth to finish loading before deciding
         if (isAuthLoading) return;
 
-        // Check if user is admin via Profile (Source of Truth) OR Metadata (Fast Fallback)
-        const isAdmin = profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
+        // ƯU TIÊN 1: Profile chính thức từ Database (Chính xác nhất)
+        if (profile) {
+            if (profile.role === 'admin') {
+                fetchUsers();
+                
+                // --- REALTIME: Tự động cập nhật danh sách khi có người đăng ký mới ---
+                const channel = supabase
+                .channel('admin-dashboard-users')
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'profiles' },
+                    (payload) => {
+                        if (payload.eventType === 'INSERT') {
+                            setUsers((prev) => [payload.new as UserProfile, ...prev]);
+                        } else if (payload.eventType === 'UPDATE') {
+                            setUsers((prev) => prev.map((u) => (u.id === payload.new.id ? (payload.new as UserProfile) : u)));
+                        } else if (payload.eventType === 'DELETE') {
+                             setUsers((prev) => prev.filter((u) => u.id !== payload.old.id));
+                        }
+                    }
+                )
+                .subscribe();
 
-        if (isAdmin) {
-            fetchUsers();
-        } else {
-            // Redirect if not admin
-            navigate('home');
+                return () => {
+                    supabase.removeChannel(channel);
+                };
+            } else {
+                // Nếu Profile đã tải xong mà KHÔNG phải Admin -> Chuyển trang
+                navigate('home');
+            }
+            return;
         }
+
+        // ƯU TIÊN 2: Metadata (Dự phòng nhanh)
+        // Chỉ dùng metadata nếu nó cho phép vào (role=admin).
+        // Nếu metadata=teacher/student, ta KHÔNG chuyển trang ngay mà chờ Profile tải xong
+        // để tránh trường hợp người dùng vừa được cấp quyền Admin nhưng metadata chưa cập nhật.
+        if (user?.user_metadata?.role === 'admin') {
+            fetchUsers();
+        }
+        
     }, [profile, user, isAuthLoading, navigate]);
 
-    // Show loading if we are still waiting for auth or initial data check
-    if (isAuthLoading) {
+    // LOGIC RENDER AN TOÀN:
+    // Chỉ hiển thị nội dung nếu CHẮC CHẮN là Admin.
+    // Nếu chưa chắc chắn (Profile null, Metadata không phải admin), cứ hiện Loading.
+    // Đừng redirect vội vàng.
+    const isConfirmedAdmin = profile?.role === 'admin' || (!profile && user?.user_metadata?.role === 'admin');
+
+    if (isAuthLoading || !isConfirmedAdmin) {
+        if (!isAuthLoading && !isConfirmedAdmin && user && !profile) {
+             // Trường hợp Profile bị lỗi không tải được lâu quá
+             return (
+                <div className="h-full w-full flex flex-col items-center justify-center space-y-4">
+                     <LoadingSpinner text="Đang đồng bộ quyền quản trị..." subText="Dữ liệu Profile đang cập nhật." />
+                     <button onClick={() => window.location.reload()} className="text-sky-600 hover:underline text-sm">
+                         Tải lại trang nếu chờ quá lâu
+                     </button>
+                </div>
+             );
+        }
+
         return (
             <div className="h-full w-full flex items-center justify-center">
                 <LoadingSpinner text="Đang xác thực quyền Admin..." />
@@ -85,15 +133,18 @@ const AdminDashboard: React.FC = () => {
 
     const handleUpdateStatus = async (userId: string, newStatus: 'active' | 'blocked') => {
         try {
+            // Optimistic update
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+
             const { error } = await supabase
                 .from('profiles')
                 .update({ status: newStatus })
                 .eq('id', userId);
 
-            if (error) throw error;
-
-            // Optimistic update
-            setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+            if (error) {
+                fetchUsers(); // Revert on error
+                throw error;
+            }
         } catch (err: any) {
             alert(`Lỗi cập nhật: ${err.message}`);
         }
@@ -123,9 +174,17 @@ const AdminDashboard: React.FC = () => {
         <div className="container mx-auto max-w-6xl pb-10">
             <Breadcrumb items={[{ label: 'Trang chủ', onClick: () => navigate('home') }, { label: 'Quản trị hệ thống' }]} />
 
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-slate-800">Tổng quan Hệ thống</h1>
-                <p className="text-slate-500 mt-1">Quản lý người dùng và xét duyệt quyền truy cập.</p>
+            <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold text-slate-800">Tổng quan Hệ thống</h1>
+                    <p className="text-slate-500 mt-1">
+                        Quản lý người dùng thời gian thực. 
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                             <span className="w-2 h-2 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
+                             Live
+                        </span>
+                    </p>
+                </div>
             </div>
 
             {/* Stats Grid */}
@@ -138,14 +197,21 @@ const AdminDashboard: React.FC = () => {
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-6 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <h2 className="text-lg font-bold text-slate-800">Danh sách người dùng</h2>
+                    <h2 className="text-lg font-bold text-slate-800 flex items-center">
+                        Danh sách người dùng
+                        {stats.pending > 0 && filterRole !== 'student' && (
+                             <span className="ml-2 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-600 animate-pulse">
+                                {stats.pending} chờ duyệt
+                             </span>
+                        )}
+                    </h2>
                     
                     <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
                         {/* Search */}
                         <input 
                             type="text" 
                             placeholder="Tìm theo email hoặc tên..." 
-                            className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                            className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none min-w-[250px]"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -192,16 +258,15 @@ const AdminDashboard: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-slate-200">
                                 {filteredUsers.map((u) => (
-                                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                                    <tr key={u.id} className={`transition-colors ${u.status === 'pending' ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-slate-50'}`}>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center">
-                                                <div className="flex-shrink-0 h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 font-bold text-lg">
-                                                    {u.full_name ? u.full_name.charAt(0).toUpperCase() : <UserCircleIcon className="h-6 w-6" />}
+                                                <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center font-bold text-lg ${u.role === 'admin' ? 'bg-red-100 text-red-500' : 'bg-slate-100 text-slate-400'}`}>
+                                                    {u.role === 'admin' ? <ShieldCheckIcon className="h-6 w-6" /> : (u.full_name ? u.full_name.charAt(0).toUpperCase() : <UserCircleIcon className="h-6 w-6" />)}
                                                 </div>
                                                 <div className="ml-4">
                                                     <div className="text-sm font-bold text-slate-800">{u.email}</div>
                                                     <div className="text-xs text-slate-500">{u.full_name || 'Chưa cập nhật tên'}</div>
-                                                    <div className="text-xs text-slate-400 mt-0.5">ID: {u.id.slice(0, 8)}...</div>
                                                 </div>
                                             </div>
                                         </td>
@@ -245,10 +310,10 @@ const AdminDashboard: React.FC = () => {
                                                     {u.status === 'pending' && (
                                                         <button 
                                                             onClick={() => handleUpdateStatus(u.id, 'active')}
-                                                            className="flex items-center text-green-700 bg-green-100 hover:bg-green-200 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold"
+                                                            className="flex items-center text-green-700 bg-green-100 hover:bg-green-200 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold border border-green-200"
                                                             title="Duyệt tài khoản"
                                                         >
-                                                            <CheckCircleIcon className="w-4 h-4 mr-1" /> Duyệt
+                                                            <CheckCircleIcon className="w-4 h-4 mr-1" /> Duyệt ngay
                                                         </button>
                                                     )}
                                                     {u.status === 'blocked' ? (

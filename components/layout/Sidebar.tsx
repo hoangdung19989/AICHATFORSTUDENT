@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigation, View } from '../../contexts/NavigationContext';
@@ -23,8 +24,18 @@ const Sidebar: React.FC<{ onOpenAboutModal: () => void }> = ({ onOpenAboutModal 
   const { user, profile, signOut } = useAuth();
   const { currentView, navigate } = useNavigation();
 
-  // Use profile data if available, fallback to metadata for immediate feedback
-  const role = profile?.role || user?.user_metadata?.role;
+  // Logic hiển thị vai trò:
+  // 1. Ưu tiên Profile đã tải
+  // 2. Nếu đang ở trang Admin Dashboard -> Hiển thị Quản trị viên (để tránh nhấp nháy)
+  // 3. Fallback về metadata
+  let role = profile?.role;
+  if (!role && currentView === 'admin-dashboard') {
+      role = 'admin';
+  }
+  if (!role) {
+      role = user?.user_metadata?.role;
+  }
+
   const status = profile?.status || 'active';
   
   let roleLabel = 'Học sinh';

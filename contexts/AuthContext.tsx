@@ -55,13 +55,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // --- AN TOÀN: Tự động tắt loading sau 2 giây ---
+    // --- AN TOÀN: Tự động tắt loading sau 5 giây (Tăng lên để tránh fallback nhầm) ---
     const timeout = setTimeout(() => {
         if (mounted && isLoading) {
             console.warn("Auth loading timed out - Forcing app load.");
             setIsLoading(false);
         }
-    }, 2000);
+    }, 5000);
 
     const initAuth = async () => {
         try {
