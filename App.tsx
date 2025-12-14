@@ -19,6 +19,7 @@ import MockExamsFlow from './features/mock-exams/MockExamsFlow';
 import SelfPracticeFlow from './features/self-practice/SelfPracticeFlow';
 import TeacherDashboard from './features/teacher/TeacherDashboard';
 import LessonPlanner from './features/teacher/LessonPlanner';
+import TestGenerator from './features/teacher/TestGenerator'; // NEW IMPORT
 import AdminDashboard from './features/admin/AdminDashboard';
 
 import { useAuth } from './contexts/AuthContext';
@@ -231,6 +232,7 @@ const AppContent: React.FC = () => {
       // Teacher Views
       case 'teacher-dashboard': return <TeacherDashboard />;
       case 'lesson-planner': return <LessonPlanner />;
+      case 'test-generator': return <TestGenerator />;
 
       // Admin View
       case 'admin-dashboard': return <AdminDashboard />;

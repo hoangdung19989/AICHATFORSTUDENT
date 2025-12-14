@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 
 export type View = 
   | 'home' | 'login' | 'admin-login' | 'update-password' | 'personalized-dashboard' | 'self-study'
-  | 'teacher-dashboard' | 'lesson-planner' | 'admin-dashboard'
+  | 'teacher-dashboard' | 'lesson-planner' | 'test-generator' | 'admin-dashboard'
   | 'ai-subjects' | 'ai-tutor'
   | 'lecture-subjects' | 'lecture-grades' | 'lecture-video'
   | 'laboratory-categories' | 'laboratory-subcategories' | 'laboratory-list' | 'laboratory-simulation'

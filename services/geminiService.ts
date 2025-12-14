@@ -322,3 +322,94 @@ export const generateLessonPlan = async (subject: string, grade: string, topic: 
         throw error; // Make TS happy
     }
 };
+
+export const generateTestFromMatrix = async (
+    subject: string, 
+    grade: string, 
+    uploadedMatrixFile: string | null,
+    uploadedSpecFile: string | null
+): Promise<Quiz> => {
+    try {
+        const fileContext = [];
+        if (uploadedMatrixFile) fileContext.push(`File Ma trận: ${uploadedMatrixFile}`);
+        if (uploadedSpecFile) fileContext.push(`File Đặc tả: ${uploadedSpecFile}`);
+        
+        const prompt = `Bạn là chuyên gia khảo thí và ra đề thi. Hãy tạo một đề kiểm tra chuẩn theo yêu cầu sau:
+        
+        Thông tin cơ bản:
+        - Môn học: ${subject}
+        - Khối lớp: ${grade}
+        
+        Tài liệu tham khảo (Giả lập):
+        ${fileContext.join('\n')}
+        
+        Yêu cầu nghiêm ngặt về cấu trúc Ma trận & Đặc tả (nếu có file đính kèm, hãy ưu tiên nội dung từ tên file, nếu không hãy dùng chuẩn chung của Bộ GD&ĐT cho khối lớp này):
+        1. **Phân bổ nhận thức**: Đảm bảo tỉ lệ hợp lý giữa:
+           - Nhận biết (Khoảng 40%)
+           - Thông hiểu (Khoảng 30%)
+           - Vận dụng (Khoảng 20%)
+           - Vận dụng cao (Khoảng 10%)
+        2. **Cấu trúc đề**:
+           - Phần 1: Trắc nghiệm khách quan (Khoảng 15-20 câu).
+           - Phần 2: Tự luận (Khoảng 2-3 câu).
+        3. **Chất lượng câu hỏi**:
+           - Câu hỏi rõ ràng, không đánh đố.
+           - Đáp án nhiễu (distractors) phải logic.
+           - Phần tự luận phải có thang điểm và đáp án chi tiết.
+        
+        Output JSON Format:
+        Trả về JSON đúng theo schema bên dưới.`;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        sourceSchool: { type: Type.STRING, description: "Tên trường (Tự tạo ngẫu nhiên một trường THCS tại Việt Nam)" },
+                        title: { type: Type.STRING, description: "Tiêu đề bài kiểm tra (VD: Kiểm tra Giữa kỳ 1)" },
+                        timeLimit: { type: Type.STRING, description: "Thời gian làm bài (VD: 45 phút)" },
+                        questions: { 
+                            type: Type.ARRAY, 
+                            description: "Danh sách câu hỏi trắc nghiệm", 
+                            items: { 
+                                type: Type.OBJECT, 
+                                properties: { 
+                                    question: { type: Type.STRING }, 
+                                    options: { type: Type.ARRAY, items: { type: Type.STRING } }, 
+                                    correctAnswer: { type: Type.STRING }, 
+                                    explanation: { type: Type.STRING, description: "Giải thích chi tiết và ghi chú mức độ (NB/TH/VD/VDC)" }, 
+                                    topics: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Chủ đề kiến thức" } 
+                                }, 
+                                required: ["question", "options", "correctAnswer", "explanation"] 
+                            } 
+                        },
+                        essayQuestions: { 
+                            type: Type.ARRAY, 
+                            description: "Danh sách câu hỏi tự luận", 
+                            items: { 
+                                type: Type.OBJECT, 
+                                properties: { 
+                                    question: { type: Type.STRING }, 
+                                    sampleAnswer: { type: Type.STRING, description: "Hướng dẫn chấm và đáp án chi tiết" } 
+                                }, 
+                                required: ["question", "sampleAnswer"] 
+                            } 
+                        }
+                    },
+                    required: ["sourceSchool", "title", "timeLimit", "questions"]
+                }
+            }
+        });
+
+        const jsonText = response.text?.trim();
+        if (!jsonText) throw new Error("Empty response for test generation");
+        return JSON.parse(jsonText) as Quiz;
+
+    } catch (error) {
+        handleGeminiError(error, "generateTestFromMatrix");
+        throw error;
+    }
+};

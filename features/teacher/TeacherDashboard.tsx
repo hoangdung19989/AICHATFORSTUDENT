@@ -13,6 +13,9 @@ const TeacherDashboard: React.FC = () => {
       case 'Soạn giáo án AI':
         navigate('lesson-planner');
         break;
+      case 'Tạo đề kiểm tra':
+        navigate('test-generator');
+        break;
       case 'Gia sư AI':
         navigate('ai-subjects');
         break;
@@ -44,10 +47,9 @@ const TeacherDashboard: React.FC = () => {
         />
          <FeatureCard
           title="Tạo đề kiểm tra"
-          description="Tạo nhanh ngân hàng câu hỏi trắc nghiệm và tự luận có đáp án chi tiết."
+          description="Tải lên Ma trận và Đặc tả để tạo đề kiểm tra chuẩn cấu trúc cho mọi môn học."
           icon={PencilSquareIcon}
           color="bg-sky-500"
-           tags={['Sắp ra mắt']}
           onClick={() => handleSelectTool('Tạo đề kiểm tra')}
         />
         <FeatureCard
