@@ -334,28 +334,23 @@ export const generateTestFromMatrix = async (
         if (uploadedMatrixFile) fileContext.push(`File Ma trận: ${uploadedMatrixFile}`);
         if (uploadedSpecFile) fileContext.push(`File Đặc tả: ${uploadedSpecFile}`);
         
-        const prompt = `Bạn là chuyên gia khảo thí và ra đề thi. Hãy tạo một đề kiểm tra chuẩn theo yêu cầu sau:
+        const prompt = `Bạn là chuyên gia khảo thí và ra đề thi chuyên nghiệp. 
+        Nhiệm vụ của bạn là **TẠO ĐỀ KIỂM TRA MỚI HOÀN TOÀN** dựa trên cấu trúc Ma trận và Đặc tả được cung cấp (giả lập thông qua tên file).
         
         Thông tin cơ bản:
         - Môn học: ${subject}
         - Khối lớp: ${grade}
         
-        Tài liệu tham khảo (Giả lập):
+        Tài liệu tham khảo (Giả lập cấu trúc):
         ${fileContext.join('\n')}
         
-        Yêu cầu nghiêm ngặt về cấu trúc Ma trận & Đặc tả (nếu có file đính kèm, hãy ưu tiên nội dung từ tên file, nếu không hãy dùng chuẩn chung của Bộ GD&ĐT cho khối lớp này):
-        1. **Phân bổ nhận thức**: Đảm bảo tỉ lệ hợp lý giữa:
-           - Nhận biết (Khoảng 40%)
-           - Thông hiểu (Khoảng 30%)
-           - Vận dụng (Khoảng 20%)
-           - Vận dụng cao (Khoảng 10%)
-        2. **Cấu trúc đề**:
-           - Phần 1: Trắc nghiệm khách quan (Khoảng 15-20 câu).
+        Yêu cầu nghiêm ngặt:
+        1. **NGUỒN ĐỀ**: Tuyệt đối KHÔNG lấy ngẫu nhiên tên trường khác. Đề thi phải mang tính tổng quát để giáo viên sử dụng. Trong trường "sourceSchool", hãy trả về chuỗi "TRƯỜNG THCS ............................................" để giáo viên tự điền.
+        2. **CẤU TRÚC**: Phải bám sát tỉ lệ nhận thức trong Ma trận (thường là 40% NB, 30% TH, 20% VD, 10% VDC).
+        3. **NỘI DUNG**: Câu hỏi phải được biên soạn mới, không copy y nguyên từ internet.
+        4. **PHÂN BỐ**:
+           - Phần 1: Trắc nghiệm khách quan (Khoảng 12-20 câu).
            - Phần 2: Tự luận (Khoảng 2-3 câu).
-        3. **Chất lượng câu hỏi**:
-           - Câu hỏi rõ ràng, không đánh đố.
-           - Đáp án nhiễu (distractors) phải logic.
-           - Phần tự luận phải có thang điểm và đáp án chi tiết.
         
         Output JSON Format:
         Trả về JSON đúng theo schema bên dưới.`;
@@ -368,9 +363,9 @@ export const generateTestFromMatrix = async (
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        sourceSchool: { type: Type.STRING, description: "Tên trường (Tự tạo ngẫu nhiên một trường THCS tại Việt Nam)" },
-                        title: { type: Type.STRING, description: "Tiêu đề bài kiểm tra (VD: Kiểm tra Giữa kỳ 1)" },
-                        timeLimit: { type: Type.STRING, description: "Thời gian làm bài (VD: 45 phút)" },
+                        sourceSchool: { type: Type.STRING, description: "Mẫu tên trường để trống cho giáo viên điền (VD: TRƯỜNG THCS ........................)" },
+                        title: { type: Type.STRING, description: "Tiêu đề bài kiểm tra (VD: ĐỀ KIỂM TRA GIỮA HỌC KỲ I)" },
+                        timeLimit: { type: Type.STRING, description: "Thời gian làm bài (VD: 60 phút)" },
                         questions: { 
                             type: Type.ARRAY, 
                             description: "Danh sách câu hỏi trắc nghiệm", 

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../services/supabaseClient';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -109,6 +110,8 @@ const MockExamView: React.FC<MockExamViewProps> = ({ subject, grade, onBack, onB
         return <p>Không có dữ liệu bài thi.</p>;
     }
 
+    const isUserCorrect = selectedAnswer === currentQuestion.correctAnswer;
+
     return (
         <div className="max-w-4xl mx-auto px-4 py-6">
              <Breadcrumb items={[
@@ -186,12 +189,22 @@ const MockExamView: React.FC<MockExamViewProps> = ({ subject, grade, onBack, onB
                     </div>
                 
                     {isAnswered && (
-                        <div className="mt-8 p-5 bg-slate-50 rounded-xl border border-slate-200 animate-slide-in-bottom">
-                            <h4 className="font-bold text-slate-800 mb-2 flex items-center">
-                                <CheckCircleIcon className="h-5 w-5 mr-2 text-green-600" />
+                        <div className={`mt-8 p-5 rounded-xl border animate-slide-in-bottom ${
+                            isUserCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                        }`}>
+                            <h4 className={`font-bold mb-2 flex items-center ${
+                                isUserCorrect ? 'text-green-800' : 'text-red-800'
+                            }`}>
+                                {isUserCorrect ? (
+                                    <CheckCircleIcon className="h-5 w-5 mr-2 text-green-600" />
+                                ) : (
+                                    <XCircleIcon className="h-5 w-5 mr-2 text-red-600" />
+                                )}
                                 Giải thích
                             </h4>
-                            <p className="text-slate-600 leading-relaxed">{currentQuestion.explanation}</p>
+                            <p className={`${isUserCorrect ? 'text-green-700' : 'text-red-700'} leading-relaxed`}>
+                                {currentQuestion.explanation}
+                            </p>
                         </div>
                     )}
                 </div>

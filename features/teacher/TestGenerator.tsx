@@ -135,10 +135,10 @@ const TestGenerator: React.FC = () => {
         if (!result) return;
         // Mock download docx content
         const textContent = `
+${result.sourceSchool.toUpperCase()}
 ĐỀ KIỂM TRA: ${result.title.toUpperCase()}
 Môn: ${subject} - ${grade}
 Thời gian: ${result.timeLimit}
-Trường: ${result.sourceSchool}
 --------------------------------------------------
 
 I. TRẮC NGHIỆM KHÁCH QUAN
