@@ -55,19 +55,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkAndEnforceRole = async (currentUser: User) => {
       const intendedRole = localStorage.getItem('intended_role');
       if (intendedRole && currentUser) {
-          console.log(`[Auth] Intended role: ${intendedRole}, Current Metadata: ${currentUser.user_metadata?.role}`);
+          const currentRole = currentUser.user_metadata?.role;
+          console.log(`[Auth] Intended: ${intendedRole}, Current: ${currentRole}`);
           
-          // Nếu role mong muốn khác role trong metadata, hoặc khác role trong profile (sẽ check sau)
-          if (currentUser.user_metadata?.role !== intendedRole) {
-              console.log("[Auth] Forcing role update...");
-              const { data, error } = await supabase.auth.updateUser({
+          // Nếu role mong muốn khác role hiện tại
+          if (currentRole !== intendedRole) {
+              console.log("[Auth] Forcing role update & profile sync...");
+              
+              // 1. Cập nhật Metadata (Auth User)
+              const { data: updatedAuth, error: authError } = await supabase.auth.updateUser({
                   data: { role: intendedRole }
               });
               
-              if (!error && data.user) {
-                  setUser(data.user);
-                  // Trigger UPDATE SQL sẽ chạy ở server để đồng bộ Profile
-              }
+              if (authError) console.error("[Auth] Metadata update failed:", authError);
+              else if (updatedAuth.user) setUser(updatedAuth.user);
+
+              // 2. Cập nhật trực tiếp Profile (Public Table)
+              // Đôi khi Trigger SQL bị chậm hoặc lỗi, ta update thẳng bảng Profiles luôn cho chắc.
+              const status = intendedRole === 'teacher' ? 'pending' : 'active';
+              
+              const { error: profileError } = await supabase
+                  .from('profiles')
+                  .upsert({
+                      id: currentUser.id,
+                      email: currentUser.email,
+                      role: intendedRole,
+                      status: status, // FORCE PENDING IF TEACHER
+                      full_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0],
+                      avatar_url: currentUser.user_metadata?.avatar_url
+                  });
+
+              if (profileError) console.error("[Auth] Profile table update failed:", profileError);
           }
           // Xóa sau khi đã xử lý
           localStorage.removeItem('intended_role');
@@ -96,17 +114,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setSession(currentSession);
                 setUser(currentSession.user);
                 
-                // 1. Kiểm tra và ép cập nhật Role nếu cần
+                // 1. Kiểm tra và ép cập nhật Role nếu cần (quan trọng)
                 await checkAndEnforceRole(currentSession.user);
 
-                // 2. Lấy Profile
+                // 2. Lấy Profile (sau khi đã cố gắng update)
                 let p = await fetchProfile(currentSession.user.id);
                 
-                // 3. (Cứu hộ) Nếu profile bị xóa mất nhưng User auth vẫn còn -> Tạo lại profile
+                // 3. (Cứu hộ) Nếu profile vẫn chưa có (Trigger failed, RLS block, etc)
                 if (!p) {
                     console.log("[Auth] Profile missing. Attempting to recreate...");
-                    // Thử cập nhật user metadata để kích hoạt lại trigger INSERT/UPDATE
-                    // Hoặc chèn trực tiếp nếu RLS cho phép
                     const role = currentSession.user.user_metadata?.role || 'student';
                     await supabase.from('profiles').upsert({
                         id: currentSession.user.id,

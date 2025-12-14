@@ -321,10 +321,16 @@ const AppContent: React.FC = () => {
   }
 
   // 4. Authenticated State: CHECK FOR PENDING TEACHER (GATEKEEPER)
-  // Nếu là giáo viên nhưng chưa duyệt -> Chặn toàn bộ app, hiển thị màn hình chờ.
-  // Ưu tiên check role từ Profile trong DB, nếu chưa có profile thì check metadata.
+  // --- BẢO MẬT QUAN TRỌNG ---
+  // Lấy role từ profile (DB) hoặc user_metadata (Auth).
   const role = profile?.role || user.user_metadata?.role;
-  const status = profile?.status || 'active'; // Mặc định active nếu chưa có profile, nhưng SQL trigger sẽ set pending.
+  
+  // LOGIC FIX:
+  // Nếu là giáo viên (role='teacher') nhưng chưa có profile (profile=null), 
+  // ta PHẢI giả định status là 'pending' để chặn truy cập cho đến khi profile load xong.
+  // Nếu là học sinh, ta giả định là 'active'.
+  const defaultStatus = role === 'teacher' ? 'pending' : 'active';
+  const status = profile?.status || defaultStatus;
 
   const isTeacherPending = role === 'teacher' && status === 'pending';
 
