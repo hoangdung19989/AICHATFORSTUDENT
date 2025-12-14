@@ -42,6 +42,11 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const handleGoogleLogin = async () => {
       setIsSubmitting(true);
       setError(null);
+      
+      // QUAN TRỌNG: Lưu role mong muốn vào localStorage.
+      // Khi quay lại từ Google, AuthContext sẽ đọc cái này và ép cập nhật Database nếu cần.
+      localStorage.setItem('intended_role', role);
+
       try {
           const { error } = await supabase.auth.signInWithOAuth({
               provider: 'google',
@@ -49,10 +54,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   redirectTo: window.location.origin,
                   queryParams: {
                       access_type: 'offline',
-                      prompt: 'consent', // Bắt buộc hiện bảng chọn tài khoản để tránh auto-login user cũ
+                      prompt: 'consent', 
                   },
                   data: {
-                      role: role, // Gửi role hiện tại lên Supabase (chỉ có tác dụng với user MỚI)
+                      role: role, 
                       full_name: '',
                   }
               }
@@ -61,6 +66,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       } catch (err: any) {
           setError(err.message || 'Lỗi đăng nhập Google.');
           setIsSubmitting(false);
+          localStorage.removeItem('intended_role'); // Clear on error
       }
   };
 
@@ -70,6 +76,9 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setIsSubmitting(true);
       setError(null);
       setMessage(null);
+
+      // Lưu ý định role
+      localStorage.setItem('intended_role', role);
 
       let formattedPhone = phone.trim();
       if (!formattedPhone) {
@@ -98,6 +107,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           setMessage(`Mã OTP đã được gửi đến ${formattedPhone}. Vui lòng kiểm tra tin nhắn.`);
       } catch (err: any) {
           setError(err.message || "Không thể gửi OTP. Vui lòng kiểm tra lại số điện thoại.");
+          localStorage.removeItem('intended_role');
       } finally {
           setIsSubmitting(false);
       }
@@ -124,6 +134,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
           if (data.session) {
               await checkUserProfile(data.user.id);
+              // Clear sau khi thành công
+              localStorage.removeItem('intended_role');
               onLoginSuccess();
           }
       } catch (err: any) {
@@ -140,6 +152,9 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setError(null);
     setMessage(null);
 
+    // Lưu ý định role
+    localStorage.setItem('intended_role', role);
+
     try {
       if (isLoginView) {
         // Sign In
@@ -155,6 +170,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         if (authData.user) {
             await checkUserProfile(authData.user.id);
         }
+        localStorage.removeItem('intended_role');
         onLoginSuccess();
 
       } else {
@@ -172,6 +188,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         if (error) throw error;
 
         if (data.session) {
+            localStorage.removeItem('intended_role');
             onLoginSuccess();
         } else if (data.user) {
             let msg = `Đăng ký thành công! `;
@@ -189,26 +206,17 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   };
 
   const checkUserProfile = async (userId: string) => {
-      const { data: profile, error: profileError } = await supabase
+      // Logic kiểm tra này sẽ được AuthContext xử lý kỹ hơn
+      // Ở đây chỉ kiểm tra block status
+      const { data: profile } = await supabase
           .from('profiles')
           .select('status, role')
           .eq('id', userId)
           .single();
       
-      if (profileError || !profile) {
-          // Fallback if profile doesn't exist yet (rare race condition)
-          return;
-      }
-
-      if (profile.status === 'blocked') {
+      if (profile && profile.status === 'blocked') {
           await supabase.auth.signOut();
           throw new Error("Tài khoản của bạn đã bị khóa.");
-      }
-      
-      // Optional: Warn if trying to login as Teacher but account is Student
-      if (role === 'teacher' && profile.role === 'student') {
-          console.warn("User registered as student but tried teacher login flow.");
-          // We don't block them, but just be aware.
       }
   };
   

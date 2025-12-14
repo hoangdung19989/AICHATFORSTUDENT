@@ -5,23 +5,24 @@ Chào mừng bạn đến với OnLuyen AI Tutor!
 
 ---
 
-## 🔥 KHẮC PHỤC LỖI "CHỌN GIÁO VIÊN NHƯNG RA HỌC SINH"
+## 🔥 BẮT BUỘC: CHẠY LỆNH SQL NÀY ĐỂ SỬA LỖI ROLE
 
-Đây là lỗi phổ biến do Trigger Database cũ không đọc đúng dữ liệu từ Google/Email. Hãy làm theo các bước sau trong **Supabase SQL Editor**:
+Để đảm bảo khi người dùng chọn "Giáo viên", hệ thống sẽ cập nhật đúng role (kể cả khi họ đã từng đăng nhập là Học sinh), bạn hãy copy và chạy toàn bộ đoạn SQL dưới đây trong **Supabase SQL Editor**:
 
 ```sql
--- 1. Xóa Trigger cũ
+-- 1. Xóa các Trigger cũ (nếu có)
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user;
+DROP TRIGGER IF EXISTS on_auth_user_updated ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_user_update;
 
--- 2. Tạo hàm xử lý mới (Chuẩn chỉnh)
+-- 2. Tạo hàm xử lý người dùng MỚI (INSERT)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE
-  -- Lấy role từ metadata, nếu không có thì mặc định là 'student'
   user_role text := COALESCE(new.raw_user_meta_data->>'role', 'student');
 BEGIN
   INSERT INTO public.profiles (id, email, role, status, full_name, avatar_url)
@@ -29,10 +30,7 @@ BEGIN
     new.id,
     new.email,
     user_role,
-    CASE 
-        WHEN user_role = 'teacher' THEN 'pending'
-        ELSE 'active'
-    END,
+    CASE WHEN user_role = 'teacher' THEN 'pending' ELSE 'active' END,
     COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
     new.raw_user_meta_data->>'avatar_url'
   );
@@ -40,23 +38,49 @@ BEGIN
 END;
 $$;
 
--- 3. Gắn lại Trigger
+-- 3. Gắn Trigger INSERT
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 4. QUAN TRỌNG: Để test lại, bạn phải xóa tài khoản cũ đã bị lỗi
--- Thay 'email_cua_ban@gmail.com' bằng email của bạn
--- DELETE FROM auth.users WHERE email = 'email_cua_ban@gmail.com';
+-- 4. [QUAN TRỌNG] Tạo hàm xử lý CẬP NHẬT người dùng (UPDATE)
+-- Hàm này giúp đồng bộ khi bạn chọn lại Role ở màn hình đăng nhập
+CREATE OR REPLACE FUNCTION public.handle_user_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  -- Nếu role trong metadata thay đổi, cập nhật profile tương ứng
+  IF new.raw_user_meta_data->>'role' IS DISTINCT FROM old.raw_user_meta_data->>'role' THEN
+    UPDATE public.profiles
+    SET 
+      role = new.raw_user_meta_data->>'role',
+      -- Nếu chuyển sang teacher thì set pending, ngược lại active
+      status = CASE WHEN new.raw_user_meta_data->>'role' = 'teacher' THEN 'pending' ELSE 'active' END
+    WHERE id = new.id;
+  END IF;
+  
+  -- Đồng bộ tên/avatar nếu thay đổi (tuỳ chọn)
+  IF new.raw_user_meta_data->>'full_name' IS DISTINCT FROM old.raw_user_meta_data->>'full_name' THEN
+     UPDATE public.profiles SET full_name = new.raw_user_meta_data->>'full_name' WHERE id = new.id;
+  END IF;
+
+  RETURN new;
+END;
+$$;
+
+-- 5. Gắn Trigger UPDATE
+CREATE TRIGGER on_auth_user_updated
+  AFTER UPDATE ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_user_update();
 ```
 
 ---
 
-## 🔥 GIẢI PHÁP CUỐI CÙNG: Sửa lỗi Admin không tải được danh sách (Loading mãi mãi)
+## 🔥 GIẢI PHÁP CUỐI CÙNG: Sửa lỗi Admin không tải được danh sách
 
-Nếu Dashboard Admin bị quay vòng hoặc hiện số 0, hãy chạy đoạn SQL dưới đây trong **Supabase SQL Editor**. 
-
-Nó tạo ra một hàm `get_all_profiles` chạy với quyền tối cao, **bỏ qua mọi kiểm tra bảo mật (RLS)**, đảm bảo 100% lấy được dữ liệu.
+Nếu Dashboard Admin bị quay vòng hoặc hiện số 0, hãy chạy đoạn SQL dưới đây:
 
 ```sql
 -- 1. Tạo hàm lấy danh sách User với quyền Tối cao (SECURITY DEFINER)
@@ -87,7 +111,7 @@ BEGIN
 END;
 $$;
 
--- 3. (Tùy chọn) Đảm bảo chính bạn là Admin
+-- 3. Set quyền Admin cho email của bạn
 -- Thay email bên dưới thành email của bạn
 DO $$
 DECLARE
@@ -103,7 +127,6 @@ BEGIN
     SET role = 'admin', status = 'active'
     WHERE email = target_email;
     
-    -- Tự động xác thực email cho admin luôn
     UPDATE auth.users SET email_confirmed_at = now() WHERE email = target_email;
 END $$;
 ```

@@ -33,9 +33,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .single();
           
           if (error) {
-              if (error.code !== 'PGRST116') {
-                  console.error('Error fetching profile:', error);
-              }
               return null;
           }
           return data as UserProfile;
@@ -52,33 +49,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   };
 
-  // --- SELF HEALING LOGIC ---
-  // Tự động sửa metadata của user nếu nó không khớp với profile trong DB
-  // Giúp khắc phục tình trạng Admin bị nhận diện nhầm là Student
-  useEffect(() => {
-      if (user && profile) {
-          const metaRole = user.user_metadata?.role;
-          const dbRole = profile.role;
-
-          // Nếu DB là Admin mà Metadata khác Admin -> Force update Metadata
-          if (dbRole === 'admin' && metaRole !== 'admin') {
-              console.log(`[AuthFix] Detected role mismatch. DB: ${dbRole}, Meta: ${metaRole}. Fixing...`);
-              supabase.auth.updateUser({
-                  data: { role: 'admin' }
-              }).then(({ data, error }) => {
-                  if (!error && data.user) {
-                      setUser(data.user);
-                      console.log("[AuthFix] Metadata updated to Admin.");
-                  }
+  // --- FORCE UPDATE ROLE LOGIC ---
+  // Kiểm tra nếu người dùng đã chọn role mới ở LoginView (lưu trong localStorage)
+  // và role đó khác với role hiện tại trong DB -> Ép cập nhật.
+  const checkAndEnforceRole = async (currentUser: User) => {
+      const intendedRole = localStorage.getItem('intended_role');
+      if (intendedRole && currentUser) {
+          console.log(`[Auth] Intended role: ${intendedRole}, Current Metadata: ${currentUser.user_metadata?.role}`);
+          
+          // Nếu role mong muốn khác role trong metadata, hoặc khác role trong profile (sẽ check sau)
+          if (currentUser.user_metadata?.role !== intendedRole) {
+              console.log("[Auth] Forcing role update...");
+              const { data, error } = await supabase.auth.updateUser({
+                  data: { role: intendedRole }
               });
+              
+              if (!error && data.user) {
+                  setUser(data.user);
+                  // Trigger UPDATE SQL sẽ chạy ở server để đồng bộ Profile
+              }
           }
+          // Xóa sau khi đã xử lý
+          localStorage.removeItem('intended_role');
       }
-  }, [user, profile]);
+  };
 
   useEffect(() => {
     let mounted = true;
 
-    // --- AN TOÀN: Tự động tắt loading sau 5 giây (Tăng lên để tránh fallback nhầm) ---
+    // --- AN TOÀN: Tự động tắt loading sau 5 giây ---
     const timeout = setTimeout(() => {
         if (mounted && isLoading) {
             console.warn("Auth loading timed out - Forcing app load.");
@@ -96,7 +95,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (currentSession?.user) {
                 setSession(currentSession);
                 setUser(currentSession.user);
-                const p = await fetchProfile(currentSession.user.id);
+                
+                // 1. Kiểm tra và ép cập nhật Role nếu cần
+                await checkAndEnforceRole(currentSession.user);
+
+                // 2. Lấy Profile
+                let p = await fetchProfile(currentSession.user.id);
+                
+                // 3. (Cứu hộ) Nếu profile bị xóa mất nhưng User auth vẫn còn -> Tạo lại profile
+                if (!p) {
+                    console.log("[Auth] Profile missing. Attempting to recreate...");
+                    // Thử cập nhật user metadata để kích hoạt lại trigger INSERT/UPDATE
+                    // Hoặc chèn trực tiếp nếu RLS cho phép
+                    const role = currentSession.user.user_metadata?.role || 'student';
+                    await supabase.from('profiles').upsert({
+                        id: currentSession.user.id,
+                        email: currentSession.user.email,
+                        role: role,
+                        status: role === 'teacher' ? 'pending' : 'active',
+                        full_name: currentSession.user.user_metadata?.full_name || currentSession.user.email?.split('@')[0],
+                        avatar_url: currentSession.user.user_metadata?.avatar_url
+                    });
+                    p = await fetchProfile(currentSession.user.id);
+                }
+
                 if (mounted) setProfile(p);
             }
         } catch (error) {
@@ -111,8 +133,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data } = supabase.auth.onAuthStateChange(async (event: string, session: Session) => {
       if (!mounted) return;
       
-      // Nếu là sự kiện SIGNED_OUT, ta không cần làm gì nhiều vì hàm signOut đã xử lý state rồi
-      // Điều này tránh xung đột state gây ra loading ảo
       if (event === 'SIGNED_OUT') {
           setSession(null);
           setUser(null);
@@ -125,6 +145,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(session?.user ?? null);
       
       if (session?.user) {
+           // Cũng kiểm tra role khi Auth State thay đổi (ví dụ sau redirect OAuth)
+           await checkAndEnforceRole(session.user);
+           
            const p = await fetchProfile(session.user.id);
            if (mounted) setProfile(p);
       } else {
@@ -146,14 +169,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = async () => {
-    // --- OPTIMISTIC UPDATE (Cập nhật lạc quan) ---
-    // 1. Xóa trạng thái ngay lập tức để UI chuyển về trang Login liền
-    // KHÔNG set isLoading(true) ở đây để tránh hiện vòng quay loading
     setUser(null);
     setProfile(null);
     setSession(null);
-    
-    // 2. Gọi API đăng xuất chạy ngầm (nếu lỗi cũng không ảnh hưởng trải nghiệm thoát của user)
+    localStorage.removeItem('intended_role');
     try {
         await supabase.auth.signOut();
     } catch (error) {
