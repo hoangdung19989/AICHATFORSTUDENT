@@ -8,6 +8,7 @@ import AboutModal from './components/modals/AboutModal';
 import LoginView from './components/auth/LoginView';
 import AdminLoginView from './components/auth/AdminLoginView';
 import UpdatePasswordView from './components/auth/UpdatePasswordView';
+import TeacherPendingView from './components/auth/TeacherPendingView'; // IMPORT NEW VIEW
 import PersonalizedDashboard from './features/personalized-dashboard/PersonalizedDashboardView';
 import SelfStudyDashboard from './features/dashboard/SelfStudyDashboard';
 import AITutorFlow from './features/ai-tutor/AITutorFlow';
@@ -319,17 +320,16 @@ const AppContent: React.FC = () => {
       );
   }
 
-  // 4. Authenticated State: CHECK FOR PENDING TEACHER
-  // Nếu là giáo viên nhưng chưa duyệt -> Khóa toàn bộ giao diện, chỉ hiện màn hình chờ.
-  const isTeacherPending = profile?.role === 'teacher' && profile?.status === 'pending';
+  // 4. Authenticated State: CHECK FOR PENDING TEACHER (GATEKEEPER)
+  // Nếu là giáo viên nhưng chưa duyệt -> Chặn toàn bộ app, hiển thị màn hình chờ.
+  // Ưu tiên check role từ Profile trong DB, nếu chưa có profile thì check metadata.
+  const role = profile?.role || user.user_metadata?.role;
+  const status = profile?.status || 'active'; // Mặc định active nếu chưa có profile, nhưng SQL trigger sẽ set pending.
+
+  const isTeacherPending = role === 'teacher' && status === 'pending';
 
   if (isTeacherPending) {
-      return (
-        <div className="h-screen w-full font-sans bg-slate-50 flex items-center justify-center p-4">
-             {/* Render TeacherDashboard directly, which contains the Pending UI */}
-             <TeacherDashboard />
-        </div>
-      );
+      return <TeacherPendingView />;
   }
 
   // 5. Standard Authenticated State (Full App Layout)
