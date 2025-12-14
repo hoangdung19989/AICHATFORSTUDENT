@@ -5,20 +5,50 @@ Chào mừng bạn đến với OnLuyen AI Tutor!
 
 ---
 
-## 🔥 KHẮC PHỤC LỖI "LOCALHOST REFUSED TO CONNECT" KHI XÁC THỰC EMAIL
+## 🔥 KHẮC PHỤC LỖI "CHỌN GIÁO VIÊN NHƯNG RA HỌC SINH"
 
-Khi bạn nhấn link trong email, trình duyệt có thể báo lỗi kết nối hoặc "OTP Expired". Điều này là do sự lệch cổng giữa Supabase (3000) và Vite (5173).
-
-**Cách giải quyết nhanh nhất:** Chạy lệnh SQL dưới đây trong Supabase SQL Editor để xác thực email thủ công mà không cần nhấn link.
+Đây là lỗi phổ biến do Trigger Database cũ không đọc đúng dữ liệu từ Google/Email. Hãy làm theo các bước sau trong **Supabase SQL Editor**:
 
 ```sql
--- Thay 'email_cua_ban@example.com' bằng email bạn vừa đăng ký
-UPDATE auth.users
-SET email_confirmed_at = now()
-WHERE email = 'email_cua_ban@example.com';
-```
+-- 1. Xóa Trigger cũ
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user;
 
-Sau khi chạy xong, bạn có thể quay lại trang web và đăng nhập bình thường.
+-- 2. Tạo hàm xử lý mới (Chuẩn chỉnh)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  -- Lấy role từ metadata, nếu không có thì mặc định là 'student'
+  user_role text := COALESCE(new.raw_user_meta_data->>'role', 'student');
+BEGIN
+  INSERT INTO public.profiles (id, email, role, status, full_name, avatar_url)
+  VALUES (
+    new.id,
+    new.email,
+    user_role,
+    CASE 
+        WHEN user_role = 'teacher' THEN 'pending'
+        ELSE 'active'
+    END,
+    COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    new.raw_user_meta_data->>'avatar_url'
+  );
+  return new;
+END;
+$$;
+
+-- 3. Gắn lại Trigger
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- 4. QUAN TRỌNG: Để test lại, bạn phải xóa tài khoản cũ đã bị lỗi
+-- Thay 'email_cua_ban@gmail.com' bằng email của bạn
+-- DELETE FROM auth.users WHERE email = 'email_cua_ban@gmail.com';
+```
 
 ---
 
@@ -76,38 +106,4 @@ BEGIN
     -- Tự động xác thực email cho admin luôn
     UPDATE auth.users SET email_confirmed_at = now() WHERE email = target_email;
 END $$;
-```
-
----
-
-## Các cài đặt khác (Trigger tạo user mới)
-
-```sql
--- Hàm tạo Profile tự động khi đăng ký
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer set search_path = public
-as $$
-begin
-  insert into public.profiles (id, email, role, status, full_name, avatar_url)
-  values (
-    new.id, 
-    new.email, 
-    COALESCE(new.raw_user_meta_data ->> 'role', 'student'),
-    CASE 
-        WHEN (new.raw_user_meta_data ->> 'role') = 'teacher' THEN 'pending'
-        ELSE 'active'
-    END,
-    new.raw_user_meta_data ->> 'full_name', 
-    new.raw_user_meta_data ->> 'avatar_url'
-  );
-  return new;
-end;
-$$;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
 ```

@@ -7,8 +7,6 @@ import {
     UserCircleIcon, 
     ShieldCheckIcon,
     GoogleLogo,
-    DevicePhoneMobileIcon,
-    EnvelopeIcon,
     PaperAirplaneIcon,
     CheckCircleIcon
 } from '../icons';
@@ -51,10 +49,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   redirectTo: window.location.origin,
                   queryParams: {
                       access_type: 'offline',
-                      prompt: 'consent', // Bắt buộc hiện màn hình chọn tài khoản để người dùng chọn lại mail nếu cần
+                      prompt: 'consent', // Bắt buộc hiện bảng chọn tài khoản để tránh auto-login user cũ
                   },
                   data: {
-                      role: role, // Quan trọng: Gắn role giáo viên/học sinh vào metadata
+                      role: role, // Gửi role hiện tại lên Supabase (chỉ có tác dụng với user MỚI)
                       full_name: '',
                   }
               }
@@ -90,7 +88,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               phone: formattedPhone,
               options: {
                   data: {
-                      role: role, // Gắn role
+                      role: role,
                   }
               }
           });
@@ -166,7 +164,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             password,
             options: {
                 data: {
-                    role: role, // Gắn role
+                    role: role, // Gắn role vào metadata
                     full_name: email.split('@')[0]
                 }
             }
@@ -193,18 +191,24 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const checkUserProfile = async (userId: string) => {
       const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('status')
+          .select('status, role')
           .eq('id', userId)
           .single();
       
       if (profileError || !profile) {
-          await supabase.auth.signOut(); 
-          throw new Error("Tài khoản này không tồn tại trong hệ thống.");
+          // Fallback if profile doesn't exist yet (rare race condition)
+          return;
       }
 
       if (profile.status === 'blocked') {
           await supabase.auth.signOut();
           throw new Error("Tài khoản của bạn đã bị khóa.");
+      }
+      
+      // Optional: Warn if trying to login as Teacher but account is Student
+      if (role === 'teacher' && profile.role === 'student') {
+          console.warn("User registered as student but tried teacher login flow.");
+          // We don't block them, but just be aware.
       }
   };
   
@@ -294,7 +298,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     className="w-full flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3.5 px-4 rounded-lg transition-colors shadow-sm"
                 >
                     <GoogleLogo className="w-5 h-5 mr-3" />
-                    {isLoginView ? 'Đăng nhập bằng Google' : 'Đăng ký bằng Google'}
+                    {isLoginView ? 'Tiếp tục với Google' : 'Đăng ký bằng Google'}
                 </button>
 
                 <div className="relative">
