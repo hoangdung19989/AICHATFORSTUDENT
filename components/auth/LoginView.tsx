@@ -48,6 +48,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               provider: 'google',
               options: {
                   redirectTo: window.location.origin,
+                  queryParams: {
+                      access_type: 'offline',
+                      prompt: 'consent', // Bắt buộc hiện màn hình chọn tài khoản để tránh auto-login
+                  },
                   data: {
                       role: role, // Quan trọng: Lưu role cho người dùng mới
                       full_name: '', // Sẽ tự lấy từ Google
