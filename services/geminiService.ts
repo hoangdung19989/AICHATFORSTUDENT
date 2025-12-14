@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 // FIX: Corrected import path for types
 import type { Subject, Quiz, TestType, LearningPath, LessonPlan } from '../types/index';
@@ -256,9 +257,30 @@ export const generatePersonalizedLearningPath = async (weakTopics: string[], gra
     }
 };
 
-export const generateLessonPlan = async (subject: string, grade: string, topic: string): Promise<LessonPlan> => {
+export const generateLessonPlan = async (subject: string, grade: string, topic: string, bookSeries: string = 'Kết nối tri thức', uploadedFiles: string[] = []): Promise<LessonPlan> => {
     try {
-        const prompt = `Bạn là một giáo viên xuất sắc. Hãy soạn một GIÁO ÁN (Kế hoạch bài dạy) chuẩn cho:\n- Môn: ${subject}\n- Lớp: ${grade}\n- Tên bài: ${topic}\n\nYêu cầu:\n- Tuân theo cấu trúc dạy học phát triển năng lực (Công văn 5512).\n- Chi tiết các hoạt động, thời gian phân bổ.\n- Ngôn ngữ: Tiếng Việt.\n\nXuất ra JSON chuẩn.`;
+        let fileContext = "";
+        if (uploadedFiles.length > 0) {
+            fileContext = `Đã tích hợp nội dung từ các file sau: ${uploadedFiles.join(", ")}.`;
+        }
+
+        const prompt = `Bạn là một chuyên gia giáo dục và chuyên gia về chuyển đổi số trong dạy học. 
+        Hãy soạn một **GIÁO ÁN (Kế hoạch bài dạy)** chi tiết, tích hợp **Khung năng lực số (NLS)**.
+        
+        Thông tin đầu vào:
+        - Môn: ${subject}
+        - Lớp: ${grade}
+        - Bộ sách: ${bookSeries}
+        - Tên bài dạy (hoặc Chủ đề): ${topic || "Tự động xác định dựa trên chương trình"}
+        ${fileContext}
+
+        Yêu cầu đặc biệt:
+        1. **Cấu trúc chuẩn**: Tuân theo công văn 5512 (Mục tiêu, Thiết bị, Tiến trình).
+        2. **Tích hợp Năng lực số**: Trong phần "Tiến trình dạy học", hãy chỉ rõ các hoạt động có ứng dụng công nghệ thông tin hoặc phát triển năng lực số cho học sinh (Ví dụ: Tra cứu thông tin, Sử dụng phần mềm mô phỏng, Làm việc nhóm trên Padlet/Canva, v.v.).
+        3. **Chi tiết hoạt động**: Mô tả rõ Hoạt động của GV và Hoạt động của HS.
+        4. **Ngôn ngữ**: Tiếng Việt chuẩn mực sư phạm.
+
+        Xuất ra JSON chuẩn theo schema sau.`;
 
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
@@ -268,23 +290,23 @@ export const generateLessonPlan = async (subject: string, grade: string, topic: 
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        topic: { type: Type.STRING },
+                        topic: { type: Type.STRING, description: "Tên bài dạy chính xác" },
                         grade: { type: Type.STRING },
-                        objectives: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Mục tiêu kiến thức, năng lực, phẩm chất" },
-                        materials: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Thiết bị dạy học và học liệu" },
+                        objectives: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Mục tiêu kiến thức, năng lực (đặc biệt là năng lực số), phẩm chất" },
+                        materials: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Thiết bị dạy học, học liệu số, phần mềm sử dụng" },
                         activities: {
                             type: Type.ARRAY,
                             items: {
                                 type: Type.OBJECT,
                                 properties: {
                                     time: { type: Type.STRING, description: "Thời gian (VD: 5 phút)" },
-                                    title: { type: Type.STRING, description: "Tên hoạt động (VD: Khởi động)" },
-                                    description: { type: Type.STRING, description: "Nội dung chi tiết hoạt động của GV và HS" }
+                                    title: { type: Type.STRING, description: "Tên hoạt động (VD: Khởi động - Tích hợp Kahoot)" },
+                                    description: { type: Type.STRING, description: "Nội dung chi tiết: GV chuyển giao nhiệm vụ, HS thực hiện, Báo cáo thảo luận..." }
                                 },
                                 required: ["time", "title", "description"]
                             }
                         },
-                        homework: { type: Type.STRING, description: "Hướng dẫn về nhà" }
+                        homework: { type: Type.STRING, description: "Hướng dẫn về nhà và nhiệm vụ chuẩn bị bài sau" }
                     },
                     required: ["topic", "objectives", "activities", "homework"]
                 }
