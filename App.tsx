@@ -162,9 +162,32 @@ const AppContent: React.FC = () => {
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // 1. Listen for Password Recovery Event
+  // 1. Listen for Password Recovery and Error Events in URL
   useEffect(() => {
+    // Check URL Hash for errors (Supabase returns errors in hash)
+    const hash = window.location.hash;
+    if (hash) {
+        const params = new URLSearchParams(hash.substring(1)); // remove #
+        const errorDescription = params.get('error_description');
+        const errorCode = params.get('error_code');
+        
+        if (errorDescription) {
+            console.error("Supabase Auth Error:", errorDescription);
+            let userMsg = "Đã xảy ra lỗi xác thực.";
+            if (errorCode === 'otp_expired') {
+                userMsg = "Liên kết xác nhận đã hết hạn hoặc không hợp lệ. Vui lòng thử đăng nhập lại hoặc yêu cầu gửi lại mail.";
+            } else {
+                userMsg = errorDescription.replace(/\+/g, ' ');
+            }
+            setAuthError(userMsg);
+            navigate('login');
+            // Clear hash to prevent error showing forever
+            window.history.replaceState(null, '', window.location.pathname);
+        }
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         navigate('update-password');
@@ -266,13 +289,28 @@ const AppContent: React.FC = () => {
     }
 
     // Default to Login View for any other unauthenticated state
-    return <LoginView onLoginSuccess={() => {
-        // Callback để trống, để useEffect xử lý chuyển hướng
-    }} />;
+    return (
+        <>
+            {authError && (
+                <div className="fixed top-0 left-0 w-full bg-red-100 border-b border-red-200 text-red-700 px-4 py-3 z-50 text-center shadow-md">
+                    <p className="font-bold">Lỗi xác thực:</p>
+                    <p className="text-sm">{authError}</p>
+                    <button 
+                        onClick={() => setAuthError(null)}
+                        className="absolute top-2 right-2 text-red-500 hover:text-red-800"
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
+            <LoginView onLoginSuccess={() => {
+                // Callback để trống, để useEffect xử lý chuyển hướng
+            }} />
+        </>
+    );
   }
 
   // 3. State: Đã đăng nhập nhưng đang ở Login/AdminLogin View (Đang chờ Redirect)
-  // Chỉ hiện loading nếu thực sự đang xử lý chuyển hướng, tránh hiện quá lâu
   if (currentView === 'login' || currentView === 'admin-login') {
       return (
           <div className="h-screen w-full flex items-center justify-center bg-brand-bg">
@@ -281,7 +319,20 @@ const AppContent: React.FC = () => {
       );
   }
 
-  // 4. Authenticated State (Full App Layout)
+  // 4. Authenticated State: CHECK FOR PENDING TEACHER
+  // Nếu là giáo viên nhưng chưa duyệt -> Khóa toàn bộ giao diện, chỉ hiện màn hình chờ.
+  const isTeacherPending = profile?.role === 'teacher' && profile?.status === 'pending';
+
+  if (isTeacherPending) {
+      return (
+        <div className="h-screen w-full font-sans bg-slate-50 flex items-center justify-center p-4">
+             {/* Render TeacherDashboard directly, which contains the Pending UI */}
+             <TeacherDashboard />
+        </div>
+      );
+  }
+
+  // 5. Standard Authenticated State (Full App Layout)
   const isLectureView = currentView === 'lecture-video';
 
   return (

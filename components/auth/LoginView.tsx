@@ -1,7 +1,16 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../../services/supabaseClient';
-import { OnLuyenLogo, AcademicCapIcon, UserCircleIcon, ShieldCheckIcon } from '../icons';
+import { 
+    OnLuyenLogo, 
+    AcademicCapIcon, 
+    UserCircleIcon, 
+    ShieldCheckIcon,
+    GoogleLogo,
+    DevicePhoneMobileIcon,
+    EnvelopeIcon,
+    PaperAirplaneIcon
+} from '../icons';
 import { useNavigation } from '../../contexts/NavigationContext';
 
 interface LoginViewProps {
@@ -9,18 +18,123 @@ interface LoginViewProps {
 }
 
 type UserRole = 'student' | 'teacher';
+type AuthMethod = 'email' | 'phone';
 
 const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const { navigate } = useNavigation();
+  const [role, setRole] = useState<UserRole>('student');
+  const [authMethod, setAuthMethod] = useState<AuthMethod>('email');
+  
+  // Email State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('student');
+  
+  // Phone State
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [showOtpInput, setShowOtpInput] = useState(false);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoginView, setIsLoginView] = useState(true);
 
-  const handleAuthAction = async (e: React.FormEvent) => {
+  // --- GOOGLE LOGIN ---
+  const handleGoogleLogin = async () => {
+      setIsSubmitting(true);
+      setError(null);
+      try {
+          const { error } = await supabase.auth.signInWithOAuth({
+              provider: 'google',
+              options: {
+                  redirectTo: window.location.origin,
+                  data: {
+                      role: role, // Quan trọng: Lưu role cho người dùng mới
+                      full_name: '', // Sẽ tự lấy từ Google
+                  }
+              }
+          });
+          if (error) throw error;
+      } catch (err: any) {
+          setError(err.message || 'Lỗi đăng nhập Google.');
+          setIsSubmitting(false);
+      }
+  };
+
+  // --- PHONE LOGIN (SEND OTP) ---
+  const handleSendOtp = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsSubmitting(true);
+      setError(null);
+      setMessage(null);
+
+      // Simple validation for phone (Vietnamese format +84 or 0...)
+      let formattedPhone = phone.trim();
+      if (!formattedPhone) {
+          setError("Vui lòng nhập số điện thoại.");
+          setIsSubmitting(false);
+          return;
+      }
+      // If user enters 09..., convert to +849... for international standard if needed by provider,
+      // but Supabase/Twilio usually handles standard formats well. Let's assume +84.
+      if (formattedPhone.startsWith('0')) {
+          formattedPhone = '+84' + formattedPhone.substring(1);
+      } else if (!formattedPhone.startsWith('+')) {
+          formattedPhone = '+84' + formattedPhone;
+      }
+
+      try {
+          const { error } = await supabase.auth.signInWithOtp({
+              phone: formattedPhone,
+              options: {
+                  data: {
+                      role: role, // Lưu role cho user mới
+                  }
+              }
+          });
+          if (error) throw error;
+          
+          setShowOtpInput(true);
+          setMessage(`Mã OTP đã được gửi đến ${formattedPhone}. Vui lòng kiểm tra tin nhắn.`);
+      } catch (err: any) {
+          setError(err.message || "Không thể gửi OTP. Vui lòng kiểm tra lại số điện thoại hoặc thử lại sau.");
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
+  // --- PHONE LOGIN (VERIFY OTP) ---
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsSubmitting(true);
+      setError(null);
+
+      let formattedPhone = phone.trim();
+      if (formattedPhone.startsWith('0')) formattedPhone = '+84' + formattedPhone.substring(1);
+      else if (!formattedPhone.startsWith('+')) formattedPhone = '+84' + formattedPhone;
+
+      try {
+          const { data, error } = await supabase.auth.verifyOtp({
+              phone: formattedPhone,
+              token: otp,
+              type: 'sms'
+          });
+
+          if (error) throw error;
+
+          if (data.session) {
+              await checkUserProfile(data.user.id);
+              onLoginSuccess();
+          }
+      } catch (err: any) {
+          setError(err.message || "Mã OTP không chính xác hoặc đã hết hạn.");
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
+  // --- EMAIL AUTH ACTION ---
+  const handleEmailAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
@@ -28,7 +142,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
     try {
       if (isLoginView) {
-        // 1. Bước 1: Xác thực Email/Password với Supabase Auth
+        // Sign In
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
         
         if (authError) {
@@ -38,207 +152,249 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
              throw authError;
         }
         
-        // 2. Bước 2: KIỂM TRA TỒN TẠI VÀ TRẠNG THÁI (Logic quan trọng)
-        // Dù password đúng, nếu Admin đã xóa dòng trong bảng 'profiles', ta phải chặn lại.
         if (authData.user) {
-            const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select('status, role')
-                .eq('id', authData.user.id)
-                .single();
-            
-            // LOGIC CHẶN: Nếu không tìm thấy hồ sơ (profileError code PGRST116 hoặc null)
-            if (profileError || !profile) {
-                // Cực kỳ quan trọng: Phải đăng xuất ngay để xóa session vừa tạo ở Bước 1
-                await supabase.auth.signOut(); 
-                throw new Error("Tài khoản này không còn tồn tại trong hệ thống (Đã bị xóa).");
-            }
-
-            // LOGIC CHẶN: Nếu tài khoản bị khóa
-            if (profile.status === 'blocked') {
-                await supabase.auth.signOut();
-                throw new Error("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
-            }
+            await checkUserProfile(authData.user.id);
         }
-
-        // 3. Nếu mọi thứ hợp lệ -> Chuyển vào App
         onLoginSuccess();
 
       } else {
-        // Handle Sign Up (Đăng ký)
+        // Sign Up
         const { data, error } = await supabase.auth.signUp({ 
             email, 
             password,
             options: {
                 data: {
-                    role: role, // Save role to user_metadata
-                    full_name: email.split('@')[0] // Default name
+                    role: role, // Save role
+                    full_name: email.split('@')[0]
                 }
             }
         });
         if (error) throw error;
 
         if (data.session) {
-            // Auto login logic
             onLoginSuccess();
         } else if (data.user) {
-            let msg = `Đăng ký tài khoản thành công! `;
-            if (role === 'teacher') {
-                msg += "Tài khoản giáo viên sẽ cần Admin xét duyệt trước khi hoạt động.";
-            } else {
-                msg += "Vui lòng kiểm tra email để xác nhận.";
-            }
+            let msg = `Đăng ký thành công! `;
+            if (role === 'teacher') msg += "Tài khoản giáo viên cần Admin xét duyệt. ";
+            else msg += "Vui lòng kiểm tra email để xác nhận. ";
             setMessage(msg);
             setIsLoginView(true);
         }
       }
     } catch (err: any) {
-        // Hiển thị lỗi rõ ràng cho người dùng
-        setError(err.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+        setError(err.message || 'Đã xảy ra lỗi.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // Helper to check profile status (Shared between methods)
+  const checkUserProfile = async (userId: string) => {
+      const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('status')
+          .eq('id', userId)
+          .single();
+      
+      if (profileError || !profile) {
+          await supabase.auth.signOut(); 
+          throw new Error("Tài khoản này không tồn tại trong hệ thống (Đã bị xóa).");
+      }
+
+      if (profile.status === 'blocked') {
+          await supabase.auth.signOut();
+          throw new Error("Tài khoản của bạn đã bị khóa.");
+      }
+  };
   
   const handlePasswordReset = async () => {
       if (!email) {
-          setError("Vui lòng nhập email của bạn để khôi phục mật khẩu.");
+          setError("Vui lòng nhập email để khôi phục mật khẩu.");
           return;
       }
       setIsSubmitting(true);
-      setError(null);
-      setMessage(null);
-      
       try {
           const { error } = await supabase.auth.resetPasswordForEmail(email, {
-              redirectTo: window.location.origin, // Redirects back to the app
+              redirectTo: window.location.origin,
           });
           if (error) throw error;
-          setMessage("Đã gửi liên kết khôi phục mật khẩu. Vui lòng kiểm tra email của bạn.");
+          setMessage("Đã gửi email khôi phục mật khẩu.");
       } catch (err: any) {
-          setError(err.error_description || err.message || 'Không thể gửi email khôi phục. Vui lòng thử lại.');
+          setError(err.message);
       } finally {
           setIsSubmitting(false);
       }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-brand-bg px-4 py-12">
-      <div className="w-full max-w-md space-y-8 flex-1 flex flex-col justify-center">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-brand-bg px-4 py-8 sm:py-12">
+      <div className="w-full max-w-md space-y-6 flex-1 flex flex-col justify-center">
         <div className="text-center">
-            <OnLuyenLogo className="mx-auto h-20 w-auto" />
-            <h2 className="mt-6 text-3xl font-bold tracking-tight text-gray-900">
-            {isLoginView ? 'Chào mừng trở lại' : 'Tạo tài khoản mới'}
+            <OnLuyenLogo className="mx-auto h-16 w-auto" />
+            <h2 className="mt-4 text-2xl sm:text-3xl font-bold tracking-tight text-gray-900">
+                {isLoginView ? 'Đăng nhập vào OnLuyen' : 'Tạo tài khoản mới'}
             </h2>
-            <p className="mt-2 text-sm text-gray-600">
-            {isLoginView 
-                ? 'Đăng nhập để tiếp tục hành trình giảng dạy và học tập' 
-                : 'Đăng ký để bắt đầu trải nghiệm OnLuyen AI'}
-            </p>
         </div>
 
         {/* Role Selection Tabs */}
-        <div className="flex p-1 bg-slate-200 rounded-xl mt-8">
-            <button
-                type="button"
-                onClick={() => setRole('student')}
-                className={`flex-1 flex items-center justify-center py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
-                    role === 'student' 
-                    ? 'bg-white text-brand-blue shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-            >
-                <AcademicCapIcon className="w-5 h-5 mr-2" />
-                Học sinh
-            </button>
-            <button
-                type="button"
-                onClick={() => setRole('teacher')}
-                className={`flex-1 flex items-center justify-center py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
-                    role === 'teacher' 
-                    ? 'bg-white text-brand-blue shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-            >
-                <UserCircleIcon className="w-5 h-5 mr-2" />
-                Giáo viên
-            </button>
-        </div>
-
-        <form className="mt-6 space-y-6" onSubmit={handleAuthAction}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <input
-                id="email-address" name="email" type="email" autoComplete="email" required
-                className="relative block w-full appearance-none rounded-t-md border border-gray-300 px-3 py-3 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-sky-500 focus:outline-none focus:ring-sky-500 sm:text-sm"
-                placeholder="Địa chỉ email"
-                value={email} onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <input
-                id="password" name="password" type="password" autoComplete="current-password" required
-                className="relative block w-full appearance-none rounded-b-md border border-gray-300 px-3 py-3 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-sky-500 focus:outline-none focus:ring-sky-500 sm:text-sm"
-                placeholder="Mật khẩu"
-                value={password} onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-          
-          {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4">
-                  <div className="flex">
-                      <div className="flex-shrink-0">
-                          <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                          </svg>
-                      </div>
-                      <div className="ml-3">
-                          <p className="text-sm text-red-700 font-medium">
-                              {error}
-                          </p>
-                      </div>
-                  </div>
-              </div>
-          )}
-          
-          {message && <p className="text-sm text-green-600 bg-green-50 p-3 rounded-md border border-green-100">{message}</p>}
-
-          <div className="flex items-center justify-between">
-            <div className="text-sm">
-              <button
-                type="button"
-                onClick={handlePasswordReset}
-                className="font-medium text-sky-600 hover:text-sky-500"
-                disabled={isSubmitting}
-              >
-                Quên mật khẩu?
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="group relative flex w-full justify-center rounded-md border border-transparent bg-brand-blue-dark py-3 px-4 text-sm font-medium text-white hover:bg-brand-blue focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 disabled:bg-slate-400 transition-colors"
-            >
-              {isSubmitting ? 'Đang xử lý...' : (
-                  isLoginView 
-                    ? `Đăng nhập (${role === 'student' ? 'Học sinh' : 'Giáo viên'})` 
-                    : `Đăng ký (${role === 'student' ? 'Học sinh' : 'Giáo viên'})`
-              )}
-            </button>
-          </div>
-        </form>
-         <div className="text-center text-sm text-gray-600">
-            <p>
-                {isLoginView ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}
-                <button onClick={() => { setIsLoginView(!isLoginView); setError(null); }} className="font-medium text-sky-600 hover:text-sky-500 ml-1">
-                    {isLoginView ? 'Đăng ký ngay' : 'Đăng nhập'}
+        <div className="flex p-1 bg-slate-200 rounded-xl">
+            {(['student', 'teacher'] as const).map((r) => (
+                <button
+                    key={r}
+                    type="button"
+                    onClick={() => { setRole(r); setShowOtpInput(false); setError(null); }}
+                    className={`flex-1 flex items-center justify-center py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+                        role === r 
+                        ? 'bg-white text-brand-blue shadow-sm' 
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                >
+                    {r === 'student' ? <AcademicCapIcon className="w-5 h-5 mr-2" /> : <UserCircleIcon className="w-5 h-5 mr-2" />}
+                    {r === 'student' ? 'Học sinh' : 'Giáo viên'}
                 </button>
-            </p>
+            ))}
         </div>
+
+        {/* Google Login Button */}
+        <div>
+            <button
+                onClick={handleGoogleLogin}
+                className="w-full flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3 px-4 rounded-lg transition-colors shadow-sm"
+            >
+                <GoogleLogo className="w-5 h-5 mr-3" />
+                Tiếp tục với Google
+            </button>
+        </div>
+
+        <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-brand-bg text-slate-500">Hoặc đăng nhập bằng</span>
+            </div>
+        </div>
+
+        {/* Auth Method Tabs (Email vs Phone) */}
+        <div className="flex space-x-4 border-b border-slate-300">
+            <button
+                className={`pb-2 text-sm font-medium transition-colors ${authMethod === 'email' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => { setAuthMethod('email'); setError(null); setMessage(null); }}
+            >
+                <div className="flex items-center space-x-2">
+                    <EnvelopeIcon className="h-5 w-5" />
+                    <span>Email & Mật khẩu</span>
+                </div>
+            </button>
+            <button
+                className={`pb-2 text-sm font-medium transition-colors ${authMethod === 'phone' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => { setAuthMethod('phone'); setError(null); setMessage(null); }}
+            >
+                <div className="flex items-center space-x-2">
+                    <DevicePhoneMobileIcon className="h-5 w-5" />
+                    <span>Số điện thoại</span>
+                </div>
+            </button>
+        </div>
+
+        {/* EMAIL FORM */}
+        {authMethod === 'email' && (
+            <form className="space-y-4" onSubmit={handleEmailAuthAction}>
+                <div className="space-y-4">
+                    <input
+                        type="email" required placeholder="Địa chỉ email"
+                        className="block w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-sky-500 focus:ring-sky-500"
+                        value={email} onChange={(e) => setEmail(e.target.value)}
+                    />
+                    <input
+                        type="password" required placeholder="Mật khẩu"
+                        className="block w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-sky-500 focus:ring-sky-500"
+                        value={password} onChange={(e) => setPassword(e.target.value)}
+                    />
+                </div>
+                
+                {isLoginView && (
+                    <div className="flex justify-end text-sm">
+                        <button type="button" onClick={handlePasswordReset} className="font-medium text-sky-600 hover:text-sky-500" disabled={isSubmitting}>
+                            Quên mật khẩu?
+                        </button>
+                    </div>
+                )}
+
+                <button
+                    type="submit" disabled={isSubmitting}
+                    className="w-full flex justify-center rounded-lg bg-brand-blue-dark py-3 px-4 text-sm font-medium text-white hover:bg-brand-blue disabled:bg-slate-400 transition-colors"
+                >
+                    {isSubmitting ? 'Đang xử lý...' : (isLoginView ? 'Đăng nhập' : 'Đăng ký')}
+                </button>
+                
+                <div className="text-center text-sm text-gray-600 mt-4">
+                    <p>
+                        {isLoginView ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}
+                        <button type="button" onClick={() => { setIsLoginView(!isLoginView); setError(null); }} className="font-medium text-sky-600 hover:text-sky-500 ml-1">
+                            {isLoginView ? 'Đăng ký ngay' : 'Đăng nhập'}
+                        </button>
+                    </p>
+                </div>
+            </form>
+        )}
+
+        {/* PHONE FORM */}
+        {authMethod === 'phone' && (
+            <form className="space-y-4" onSubmit={showOtpInput ? handleVerifyOtp : handleSendOtp}>
+                {!showOtpInput ? (
+                    <>
+                        <input
+                            type="tel" required placeholder="Số điện thoại (VD: 0912345678)"
+                            className="block w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-sky-500 focus:ring-sky-500"
+                            value={phone} onChange={(e) => setPhone(e.target.value)}
+                        />
+                        <button
+                            type="submit" disabled={isSubmitting}
+                            className="w-full flex justify-center items-center rounded-lg bg-brand-blue-dark py-3 px-4 text-sm font-medium text-white hover:bg-brand-blue disabled:bg-slate-400 transition-colors"
+                        >
+                            {isSubmitting ? 'Đang gửi...' : (
+                                <>
+                                    <PaperAirplaneIcon className="h-4 w-4 mr-2" />
+                                    Gửi mã xác nhận
+                                </>
+                            )}
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <div className="text-center mb-2">
+                            <p className="text-sm text-slate-600">Đã gửi mã đến <b>{phone}</b></p>
+                            <button type="button" onClick={() => setShowOtpInput(false)} className="text-xs text-sky-600 hover:underline">Thay đổi số</button>
+                        </div>
+                        <input
+                            type="text" required placeholder="Nhập mã OTP (6 số)" maxLength={6}
+                            className="block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-lg tracking-widest focus:border-sky-500 focus:ring-sky-500"
+                            value={otp} onChange={(e) => setOtp(e.target.value)}
+                        />
+                        <button
+                            type="submit" disabled={isSubmitting}
+                            className="w-full flex justify-center rounded-lg bg-green-600 py-3 px-4 text-sm font-medium text-white hover:bg-green-500 disabled:bg-slate-400 transition-colors"
+                        >
+                            {isSubmitting ? 'Đang kiểm tra...' : 'Xác thực & Đăng nhập'}
+                        </button>
+                    </>
+                )}
+            </form>
+        )}
+
+        {/* Global Messages */}
+        {error && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 text-sm text-red-700">
+                <p className="font-medium">Lỗi:</p>
+                <p>{error}</p>
+            </div>
+        )}
+        {message && (
+            <div className="bg-green-50 border-l-4 border-green-500 p-4 text-sm text-green-700">
+                {message}
+            </div>
+        )}
       </div>
 
       <div className="mt-8 text-center">

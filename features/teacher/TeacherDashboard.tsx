@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,7 +8,7 @@ import { PencilSquareIcon, DocumentTextIcon, UserCircleIcon, ChatBubbleBottomCen
 
 const TeacherDashboard: React.FC = () => {
   const { navigate } = useNavigation();
-  const { profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile, signOut } = useAuth();
 
   const handleSelectTool = (title: string) => {
     switch (title) {
@@ -25,7 +26,7 @@ const TeacherDashboard: React.FC = () => {
   // Check if teacher is verified
   if (profile?.status === 'pending') {
       return (
-          <div className="container mx-auto max-w-2xl text-center py-12">
+          <div className="container mx-auto max-w-2xl text-center py-12 px-4">
                <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-8 shadow-sm">
                    <div className="flex justify-center mb-4">
                        <ClockIcon className="h-16 w-16 text-yellow-500" />
@@ -33,16 +34,28 @@ const TeacherDashboard: React.FC = () => {
                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Tài khoản đang chờ xét duyệt</h2>
                    <p className="text-slate-600 mb-6">
                        Cảm ơn thầy/cô đã đăng ký tham gia OnLuyen AI. 
-                       Để đảm bảo chất lượng, chúng tôi cần xác minh thông tin tài khoản Giáo viên.
+                       Để đảm bảo chất lượng và an toàn cho học sinh, chúng tôi cần xác minh thông tin tài khoản Giáo viên.
                        <br/><br/>
                        Vui lòng chờ Admin phê duyệt. Quá trình này thường mất từ 1-24 giờ.
                    </p>
-                   <button 
-                    onClick={refreshProfile}
-                    className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-6 rounded-lg transition-colors"
-                   >
-                       Kiểm tra lại trạng thái
-                   </button>
+                   
+                   <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                       <button 
+                        onClick={refreshProfile}
+                        className="w-full sm:w-auto bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2.5 px-6 rounded-lg transition-colors shadow-sm"
+                       >
+                           Kiểm tra lại trạng thái
+                       </button>
+                       <button 
+                        onClick={signOut}
+                        className="w-full sm:w-auto bg-white border border-slate-300 text-slate-600 font-bold py-2.5 px-6 rounded-lg hover:bg-slate-50 transition-colors"
+                       >
+                           Đăng xuất
+                       </button>
+                   </div>
+                   <p className="text-xs text-slate-400 mt-4">
+                       Nếu bạn là học sinh và đăng ký nhầm, hãy bấm Đăng xuất và tạo tài khoản mới với vai trò Học sinh.
+                   </p>
                </div>
           </div>
       );

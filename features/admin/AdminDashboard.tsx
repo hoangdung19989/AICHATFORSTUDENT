@@ -41,21 +41,32 @@ const AdminDashboard: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch all users - Wrapped in useCallback for stability
+    // Fetch all users using RPC to bypass RLS loops
     const fetchUsers = useCallback(async () => {
         setIsLoadingData(true);
         setError(null);
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: false });
+            // SỬ DỤNG RPC (Remote Procedure Call) THAY VÌ SELECT TRỰC TIẾP
+            // Hàm này (get_all_profiles) được định nghĩa là SECURITY DEFINER trong SQL
+            // Nó giúp bỏ qua các quy tắc RLS phức tạp gây treo ứng dụng.
+            const { data, error } = await supabase.rpc('get_all_profiles');
 
-            if (error) throw error;
-            setUsers(data as UserProfile[]);
+            if (error) {
+                console.warn("RPC failed, falling back to table select:", error);
+                // Fallback chỉ dùng khi chưa chạy lệnh SQL tạo hàm
+                const { data: fallbackData, error: fallbackError } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+                
+                if (fallbackError) throw fallbackError;
+                setUsers(fallbackData as UserProfile[]);
+            } else {
+                setUsers(data as UserProfile[]);
+            }
         } catch (err: any) {
             console.error(err);
-            setError("Không thể tải danh sách. Lỗi: " + err.message);
+            setError("Lỗi tải dữ liệu: " + err.message);
         } finally {
             setIsLoadingData(false);
         }
@@ -70,8 +81,6 @@ const AdminDashboard: React.FC = () => {
 
         if (isAdmin) {
             fetchUsers();
-            // Note: Removed Realtime subscription to prevent loading loops/flickering.
-            // Using manual refresh is safer for stability.
         } else {
             // Not authorized
             navigate('home');
@@ -224,9 +233,16 @@ const AdminDashboard: React.FC = () => {
 
                 {error && (
                     <div className="bg-red-50 text-red-600 p-4 m-6 rounded-lg border border-red-100">
-                        {error}
-                        <div className="mt-2 text-sm text-red-500">
-                            Gợi ý: Hãy chạy SQL trong file README.md mục "SỬA LỖI: Dashboard Admin bị treo"
+                        <p className="font-bold">Đã xảy ra lỗi:</p>
+                        <p>{error}</p>
+                        <div className="mt-4 text-sm text-slate-700 bg-white p-3 rounded border border-slate-200">
+                            <strong>Cách khắc phục:</strong>
+                            <ol className="list-decimal list-inside mt-1 space-y-1">
+                                <li>Mở file <code>README.md</code></li>
+                                <li>Copy đoạn SQL trong mục <strong>"🔥 GIẢI PHÁP CUỐI CÙNG"</strong></li>
+                                <li>Dán và chạy trong <strong>Supabase SQL Editor</strong></li>
+                                <li>Bấm nút "Làm mới dữ liệu" ở trên</li>
+                            </ol>
                         </div>
                     </div>
                 )}

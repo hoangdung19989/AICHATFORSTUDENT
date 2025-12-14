@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
+    server: {
+      port: 3000, // Force port 3000 to match Supabase redirect URL
+      strictPort: false, // Allow fallback if 3000 is busy, but warn user
+    },
     define: {
       // Polyfill process.env for compatibility and safety
       'process.env.API_KEY': JSON.stringify(env.VITE_API_KEY || env.API_KEY || ''),
