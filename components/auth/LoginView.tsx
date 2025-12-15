@@ -43,10 +43,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setIsSubmitting(true);
       setError(null);
       
-      // BƯỚC QUAN TRỌNG NHẤT: Lưu role mong muốn vào bộ nhớ trình duyệt
-      // AuthContext sẽ đọc cái này khi quay lại để sửa database.
-      localStorage.setItem('intended_role', role);
-
       try {
           const { error } = await supabase.auth.signInWithOAuth({
               provider: 'google',
@@ -56,9 +52,9 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       access_type: 'offline',
                       prompt: 'consent', 
                   },
+                  // QUAN TRỌNG: Gửi role lên metadata để Trigger xử lý
                   data: {
                       role: role, 
-                      full_name: '',
                   }
               }
           });
@@ -76,8 +72,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setError(null);
       setMessage(null);
 
-      localStorage.setItem('intended_role', role);
-
       let formattedPhone = phone.trim();
       if (!formattedPhone) {
           setError("Vui lòng nhập số điện thoại.");
@@ -94,6 +88,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           const { error } = await supabase.auth.signInWithOtp({
               phone: formattedPhone,
               options: {
+                  // QUAN TRỌNG: Gửi role lên metadata để Trigger xử lý
                   data: {
                       role: role,
                   }
@@ -130,8 +125,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           if (error) throw error;
 
           if (data.session) {
-              await checkUserProfile(data.user.id);
-              localStorage.removeItem('intended_role');
               onLoginSuccess();
           }
       } catch (err: any) {
@@ -148,8 +141,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setError(null);
     setMessage(null);
 
-    localStorage.setItem('intended_role', role);
-
     try {
       if (isLoginView) {
         // Sign In
@@ -162,10 +153,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
              throw authError;
         }
         
-        if (authData.user) {
-            await checkUserProfile(authData.user.id);
-        }
-        localStorage.removeItem('intended_role');
         onLoginSuccess();
 
       } else {
@@ -174,6 +161,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             email, 
             password,
             options: {
+                // QUAN TRỌNG: Gửi role lên metadata để Trigger xử lý
                 data: {
                     role: role, 
                     full_name: email.split('@')[0]
@@ -183,11 +171,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         if (error) throw error;
 
         if (data.session) {
-            localStorage.removeItem('intended_role');
             onLoginSuccess();
         } else if (data.user) {
             let msg = `Đăng ký thành công! `;
-            if (role === 'teacher') msg += "Tài khoản giáo viên cần Admin xét duyệt. ";
+            if (role === 'teacher') msg += "Tài khoản Giáo viên sẽ ở trạng thái Chờ duyệt. ";
             else msg += "Vui lòng kiểm tra email để xác nhận. ";
             setMessage(msg);
             setIsLoginView(true);
@@ -198,19 +185,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const checkUserProfile = async (userId: string) => {
-      const { data: profile } = await supabase
-          .from('profiles')
-          .select('status, role')
-          .eq('id', userId)
-          .single();
-      
-      if (profile && profile.status === 'blocked') {
-          await supabase.auth.signOut();
-          throw new Error("Tài khoản của bạn đã bị khóa.");
-      }
   };
   
   const handlePasswordReset = async () => {
@@ -411,7 +385,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
             {/* Error/Success Messages */}
             {error && <div className="bg-red-50 border-t border-red-100 p-4 text-sm text-red-700 text-center">{error}</div>}
-            {message && <div className="bg-green-50 border-t border-green-100 p-4 text-sm text-green-700 text-center">{message}</div>}
+            {message && <div className="bg-green-50 border-t border-green-100 p-4 text-sm text-green-700 text-center">{message}</p>}
         </div>
 
         <div className="mt-8 text-center">
