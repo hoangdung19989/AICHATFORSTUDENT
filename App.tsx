@@ -200,7 +200,7 @@ const AppContent: React.FC = () => {
 
   // 2. Strict Redirect Logic
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading) return; // Wait until AuthContext is ready
     
     const isRecovery = window.location.hash.includes('type=recovery');
 
@@ -325,6 +325,7 @@ const AppContent: React.FC = () => {
   // 4. Authenticated State: CHECK FOR PENDING TEACHER (GATEKEEPER)
   // --- BẢO MẬT QUAN TRỌNG ---
   // Lấy role từ profile (DB) hoặc user_metadata (Auth).
+  // Ưu tiên role từ Profile để chính xác nhất.
   const role = profile?.role || user.user_metadata?.role;
   
   // LOGIC FIX:
@@ -334,6 +335,7 @@ const AppContent: React.FC = () => {
   const defaultStatus = role === 'teacher' ? 'pending' : 'active';
   const status = profile?.status || defaultStatus;
 
+  // Explicit check: Role must be teacher AND status must be pending to show pending view.
   const isTeacherPending = role === 'teacher' && status === 'pending';
 
   if (isTeacherPending) {

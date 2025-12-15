@@ -392,7 +392,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                                 />
                                 <button
                                     type="submit" disabled={isSubmitting}
-                                    className="w-full flex justify-center rounded-lg bg-green-600 py-3 px-4 text-sm font-bold text-white hover:bg-green-500 disabled:opacity-50 transition-colors shadow-md"
+                                    className="w-full flex justify-center rounded-lg bg-green-600 py-3 px-4 text-sm font-bold text-white hover:bg-green-50 disabled:opacity-50 transition-colors shadow-md"
                                 >
                                     {isSubmitting ? 'Đang kiểm tra...' : 'Xác thực'}
                                 </button>
