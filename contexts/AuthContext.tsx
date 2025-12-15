@@ -32,9 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .eq('id', userId)
               .single();
           
-          if (error) {
-              return null;
-          }
+          if (error) return null;
           return data as UserProfile;
       } catch (err) {
           console.error('Exception fetching profile:', err);
@@ -49,56 +47,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   };
 
-  // --- FORCE UPDATE ROLE LOGIC ---
-  // Kiểm tra nếu người dùng đã chọn role mới ở LoginView (lưu trong localStorage)
-  // và role đó khác với role hiện tại trong DB -> Ép cập nhật.
-  const checkAndEnforceRole = async (currentUser: User) => {
+  // --- LOGIC SỬA LỖI QUAN TRỌNG: FIX ROLE GOOGLE LOGIN ---
+  const fixRoleAfterGoogleLogin = async (userId: string) => {
       const intendedRole = localStorage.getItem('intended_role');
-      if (intendedRole && currentUser) {
-          const currentRole = currentUser.user_metadata?.role;
-          console.log(`[Auth] Intended: ${intendedRole}, Current: ${currentRole}`);
+      
+      // Chỉ xử lý nếu người dùng có ý định là Teacher
+      if (intendedRole === 'teacher') {
+          console.log("[Auth] Phát hiện đăng nhập Teacher qua Google. Đang đồng bộ dữ liệu...");
           
-          // Nếu role mong muốn khác role hiện tại
-          if (currentRole !== intendedRole) {
-              console.log("[Auth] Forcing role update & profile sync...");
-              
-              // 1. Cập nhật Metadata (Auth User)
-              const { data: updatedAuth, error: authError } = await supabase.auth.updateUser({
-                  data: { role: intendedRole }
-              });
-              
-              if (authError) console.error("[Auth] Metadata update failed:", authError);
-              else if (updatedAuth.user) setUser(updatedAuth.user);
-
-              // 2. Cập nhật trực tiếp Profile (Public Table)
-              // Đôi khi Trigger SQL bị chậm hoặc lỗi, ta update thẳng bảng Profiles luôn cho chắc.
-              const status = intendedRole === 'teacher' ? 'pending' : 'active';
-              
-              const { error: profileError } = await supabase
-                  .from('profiles')
-                  .upsert({
-                      id: currentUser.id,
-                      email: currentUser.email,
-                      role: intendedRole,
-                      status: status, // FORCE PENDING IF TEACHER
-                      full_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0],
-                      avatar_url: currentUser.user_metadata?.avatar_url
-                  });
-
-              if (profileError) console.error("[Auth] Profile table update failed:", profileError);
+          // Gọi hàm RPC đặc biệt để ép Database cập nhật Role = teacher và Status = pending
+          // Hàm này (claim_teacher_role) cần được tạo trong SQL Editor (xem README.md)
+          const { error } = await supabase.rpc('claim_teacher_role');
+          
+          if (error) {
+              console.error("[Auth] Lỗi khi gọi RPC claim_teacher_role:", error);
+              // Fallback: Thử update thủ công (có thể thất bại do RLS)
+              await supabase.auth.updateUser({ data: { role: 'teacher' } });
+          } else {
+              console.log("[Auth] Đã đồng bộ thành công Role Teacher (Pending).");
           }
-          // Xóa sau khi đã xử lý
+          
+          // Xóa cờ sau khi xử lý xong
           localStorage.removeItem('intended_role');
+          
+          // Trả về true để báo hiệu cần reload profile
+          return true;
       }
+      return false;
   };
 
   useEffect(() => {
     let mounted = true;
 
-    // --- AN TOÀN: Tự động tắt loading sau 5 giây ---
+    // Timeout an toàn
     const timeout = setTimeout(() => {
         if (mounted && isLoading) {
-            console.warn("Auth loading timed out - Forcing app load.");
+            console.warn("Auth loading timed out.");
             setIsLoading(false);
         }
     }, 5000);
@@ -114,17 +98,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setSession(currentSession);
                 setUser(currentSession.user);
                 
-                // 1. Kiểm tra và ép cập nhật Role nếu cần (quan trọng)
-                await checkAndEnforceRole(currentSession.user);
+                // 1. CHẠY LOGIC SỬA LỖI ROLE TRƯỚC KHI LẤY PROFILE
+                await fixRoleAfterGoogleLogin(currentSession.user.id);
 
-                // 2. Lấy Profile (sau khi đã cố gắng update)
+                // 2. Lấy Profile (lúc này database đã đúng role)
                 let p = await fetchProfile(currentSession.user.id);
                 
-                // 3. (Cứu hộ) Nếu profile vẫn chưa có (Trigger failed, RLS block, etc)
+                // 3. (Cứu hộ) Nếu chưa có profile, tạo mới
                 if (!p) {
-                    console.log("[Auth] Profile missing. Attempting to recreate...");
+                    console.log("[Auth] Profile missing. Creating default...");
                     const role = currentSession.user.user_metadata?.role || 'student';
-                    await supabase.from('profiles').upsert({
+                    await supabase.from('profiles').insert({
                         id: currentSession.user.id,
                         email: currentSession.user.email,
                         role: role,
@@ -138,7 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (mounted) setProfile(p);
             }
         } catch (error) {
-            console.error("Auth initialization error:", error);
+            console.error("Auth init error:", error);
         } finally {
             if (mounted) setIsLoading(false);
         }
@@ -154,6 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           setProfile(null);
           setIsLoading(false);
+          localStorage.removeItem('intended_role');
           return;
       }
 
@@ -161,8 +146,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(session?.user ?? null);
       
       if (session?.user) {
-           // Cũng kiểm tra role khi Auth State thay đổi (ví dụ sau redirect OAuth)
-           await checkAndEnforceRole(session.user);
+           // Cũng chạy logic sửa lỗi khi có sự kiện đăng nhập (SIGNED_IN)
+           if (event === 'SIGNED_IN') {
+                await fixRoleAfterGoogleLogin(session.user.id);
+           }
            
            const p = await fetchProfile(session.user.id);
            if (mounted) setProfile(p);
@@ -192,7 +179,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
         await supabase.auth.signOut();
     } catch (error) {
-        console.error("Lỗi đăng xuất ngầm:", error);
+        console.error("Logout error:", error);
     }
   };
 

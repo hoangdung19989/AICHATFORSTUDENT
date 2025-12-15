@@ -44,7 +44,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setError(null);
       
       // QUAN TRỌNG: Lưu role mong muốn vào localStorage.
-      // Khi quay lại từ Google, AuthContext sẽ đọc cái này và ép cập nhật Database nếu cần.
+      // AuthContext sẽ đọc giá trị này khi người dùng quay lại từ Google để đồng bộ Database.
       localStorage.setItem('intended_role', role);
 
       try {
@@ -56,6 +56,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       access_type: 'offline',
                       prompt: 'consent', 
                   },
+                  // Dù ta gửi data ở đây, đôi khi Trigger SQL chạy nhanh hơn metadata update.
+                  // Vì vậy ta vẫn cần cơ chế "Self-Healing" trong AuthContext.
                   data: {
                       role: role, 
                       full_name: '',
@@ -66,7 +68,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       } catch (err: any) {
           setError(err.message || 'Lỗi đăng nhập Google.');
           setIsSubmitting(false);
-          localStorage.removeItem('intended_role'); // Clear on error
+          // Không xóa intended_role ở đây phòng trường hợp user thử lại
       }
   };
 
@@ -77,7 +79,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setError(null);
       setMessage(null);
 
-      // Lưu ý định role
       localStorage.setItem('intended_role', role);
 
       let formattedPhone = phone.trim();
@@ -107,7 +108,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           setMessage(`Mã OTP đã được gửi đến ${formattedPhone}. Vui lòng kiểm tra tin nhắn.`);
       } catch (err: any) {
           setError(err.message || "Không thể gửi OTP. Vui lòng kiểm tra lại số điện thoại.");
-          localStorage.removeItem('intended_role');
       } finally {
           setIsSubmitting(false);
       }
@@ -134,7 +134,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
           if (data.session) {
               await checkUserProfile(data.user.id);
-              // Clear sau khi thành công
               localStorage.removeItem('intended_role');
               onLoginSuccess();
           }
@@ -152,7 +151,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setError(null);
     setMessage(null);
 
-    // Lưu ý định role
     localStorage.setItem('intended_role', role);
 
     try {
@@ -180,7 +178,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             password,
             options: {
                 data: {
-                    role: role, // Gắn role vào metadata
+                    role: role, 
                     full_name: email.split('@')[0]
                 }
             }
@@ -206,8 +204,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   };
 
   const checkUserProfile = async (userId: string) => {
-      // Logic kiểm tra này sẽ được AuthContext xử lý kỹ hơn
-      // Ở đây chỉ kiểm tra block status
       const { data: profile } = await supabase
           .from('profiles')
           .select('status, role')
