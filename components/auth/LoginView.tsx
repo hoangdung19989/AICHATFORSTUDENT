@@ -385,7 +385,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
             {/* Error/Success Messages */}
             {error && <div className="bg-red-50 border-t border-red-100 p-4 text-sm text-red-700 text-center">{error}</div>}
-            {message && <div className="bg-green-50 border-t border-green-100 p-4 text-sm text-green-700 text-center">{message}</p>}
+            {message && <div className="bg-green-50 border-t border-green-100 p-4 text-sm text-green-700 text-center">{message}</div>}
         </div>
 
         <div className="mt-8 text-center">
