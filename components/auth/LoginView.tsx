@@ -7,7 +7,6 @@ import {
     AcademicCapIcon, 
     UserCircleIcon, 
     ShieldCheckIcon,
-    GoogleLogo,
     PaperAirplaneIcon,
     CheckCircleIcon,
     ExclamationTriangleIcon
@@ -25,20 +24,23 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const { navigate } = useNavigation();
   const [role, setRole] = useState<UserRole>('student');
   const [authMethod, setAuthMethod] = useState<AuthMethod>('email');
+  const [isLoginView, setIsLoginView] = useState(true);
   
-  // Email State
+  // Basic Auth Fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
-  // Phone State
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [showOtpInput, setShowOtpInput] = useState(false);
 
+  // New Profile Fields (For Registration)
+  const [fullName, setFullName] = useState('');
+  const [dob, setDob] = useState('');
+  const [gender, setGender] = useState('Nam');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [isLoginView, setIsLoginView] = useState(true);
   
   // Config Check State
   const [configError, setConfigError] = useState<string | null>(null);
@@ -54,42 +56,11 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       } 
   }, []);
 
-  // --- GOOGLE LOGIN ---
-  const handleGoogleLogin = async () => {
-      if (configError) {
-          alert("Vui lòng sửa lỗi cấu hình trong file config.ts trước!");
-          return;
-      }
-      setIsSubmitting(true);
-      setError(null);
-      
-      try {
-          // LƯU Ý QUAN TRỌNG:
-          // Nếu email đã tồn tại trong Auth Users, Supabase sẽ thực hiện LOGIN (giữ nguyên role cũ).
-          // Nếu email chưa tồn tại, Supabase sẽ thực hiện SIGNUP (dùng role mới trong options).
-          const { error } = await supabase.auth.signInWithOAuth({
-              provider: 'google',
-              options: {
-                  redirectTo: window.location.origin,
-                  queryParams: {
-                      access_type: 'offline',
-                      // 'select_account': Buộc Google hỏi chọn tài khoản (để bạn có thể chọn email khác hoặc đăng nhập lại).
-                      // 'consent': Buộc hiển thị màn hình cấp quyền lại -> Giúp reset flow tốt hơn khi test.
-                      prompt: 'consent select_account', 
-                  },
-                  data: {
-                      // Dữ liệu này chỉ được ghi vào metadata KHI TẠO USER MỚI (Sign Up).
-                      // Nếu user cũ login, dòng này bị bỏ qua.
-                      role: role, 
-                      full_name: '', 
-                  }
-              }
-          });
-          if (error) throw error;
-      } catch (err: any) {
-          setError(err.message || 'Lỗi đăng nhập Google.');
-          setIsSubmitting(false);
-      }
+  // Validation Helper
+  const validateRegistration = () => {
+      if (!fullName.trim()) return "Vui lòng nhập họ và tên.";
+      if (!dob) return "Vui lòng nhập ngày sinh.";
+      return null;
   };
 
   // --- PHONE LOGIN (SEND OTP) ---
@@ -97,6 +68,15 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       e.preventDefault();
       if (configError) return;
       
+      // Nếu là đăng ký, validate thông tin cá nhân trước
+      if (!isLoginView) {
+          const valError = validateRegistration();
+          if (valError) {
+              setError(valError);
+              return;
+          }
+      }
+
       setIsSubmitting(true);
       setError(null);
       setMessage(null);
@@ -117,9 +97,12 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           const { error } = await supabase.auth.signInWithOtp({
               phone: formattedPhone,
               options: {
-                  data: {
+                  data: !isLoginView ? {
                       role: role,
-                  }
+                      full_name: fullName,
+                      date_of_birth: dob,
+                      gender: gender
+                  } : undefined
               }
           });
           if (error) throw error;
@@ -176,24 +159,28 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         // Sign In
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
         
-        if (authError) {
-             if (authError.message === "Invalid login credentials") {
-                 throw new Error("Email hoặc mật khẩu không chính xác.");
-             }
-             throw authError;
-        }
+        if (authError) throw authError;
         
         onLoginSuccess();
 
       } else {
         // Sign Up
+        const valError = validateRegistration();
+        if (valError) {
+            setError(valError);
+            setIsSubmitting(false);
+            return;
+        }
+
         const { data, error } = await supabase.auth.signUp({ 
             email, 
             password,
             options: {
                 data: {
                     role: role, 
-                    full_name: email.split('@')[0]
+                    full_name: fullName,
+                    date_of_birth: dob,
+                    gender: gender
                 }
             }
         });
@@ -210,7 +197,16 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         }
       }
     } catch (err: any) {
-        setError(err.message || 'Đã xảy ra lỗi.');
+        let msg = err.message || 'Đã xảy ra lỗi.';
+        // Dịch lỗi sang Tiếng Việt
+        if (msg.includes('Invalid login credentials')) {
+             msg = "Email hoặc mật khẩu không chính xác.";
+        } else if (msg.includes('Email not confirmed')) {
+             msg = "Email chưa được xác nhận. Vui lòng kiểm tra hộp thư đến (hoặc thư rác) để kích hoạt tài khoản.";
+        } else if (msg.includes('User already registered')) {
+             msg = "Email này đã được đăng ký. Vui lòng chuyển sang tab Đăng nhập.";
+        }
+        setError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -228,12 +224,47 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               redirectTo: window.location.origin,
           });
           if (error) throw error;
-          setMessage("Đã gửi email khôi phục mật khẩu.");
+          setMessage("Đã gửi email khôi phục mật khẩu. Vui lòng kiểm tra hộp thư.");
       } catch (err: any) {
           setError(err.message);
       } finally {
           setIsSubmitting(false);
       }
+  };
+
+  const renderRegistrationFields = () => {
+      if (isLoginView) return null;
+      return (
+          <div className="space-y-3 pt-2 pb-1 border-t border-b border-slate-100 my-3 animate-slide-in-bottom">
+              <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Thông tin cá nhân</label>
+                  <input
+                      type="text" required placeholder="Họ và tên đầy đủ"
+                      className="block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-sky-500 focus:ring-sky-500"
+                      value={fullName} onChange={(e) => setFullName(e.target.value)}
+                  />
+              </div>
+              <div className="flex space-x-3">
+                  <div className="flex-1">
+                      <input
+                          type="date" required
+                          className="block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-sky-500 focus:ring-sky-500 text-slate-600"
+                          value={dob} onChange={(e) => setDob(e.target.value)}
+                      />
+                  </div>
+                  <div className="w-1/3">
+                      <select 
+                          className="block w-full rounded-lg border border-gray-300 px-2 py-2.5 focus:border-sky-500 focus:ring-sky-500"
+                          value={gender} onChange={(e) => setGender(e.target.value)}
+                      >
+                          <option value="Nam">Nam</option>
+                          <option value="Nữ">Nữ</option>
+                          <option value="Khác">Khác</option>
+                      </select>
+                  </div>
+              </div>
+          </div>
+      );
   };
 
   return (
@@ -314,31 +345,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
             <div className="p-6 sm:p-8 space-y-6">
                 
-                {/* Google Button */}
-                <div className="space-y-2">
-                    <button
-                        onClick={handleGoogleLogin}
-                        className="w-full flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3.5 px-4 rounded-lg transition-colors shadow-sm"
-                    >
-                        <GoogleLogo className="w-5 h-5 mr-3" />
-                        {isLoginView 
-                            ? 'Tiếp tục với Google' 
-                            : `Đăng ký ${role === 'teacher' ? 'Giáo viên' : 'Học sinh'} bằng Google`
-                        }
-                    </button>
-                    {/* HINT FOR USER */}
-                    {role === 'teacher' && (
-                        <p className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-                            <strong>Lưu ý:</strong> Nếu email Google này đã từng đăng nhập vào hệ thống dưới quyền Học sinh, nó sẽ giữ nguyên quyền cũ. Hãy dùng email mới hoặc nhờ Admin xóa tài khoản cũ.
-                        </p>
-                    )}
-                </div>
-
-                <div className="relative">
-                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200"></div></div>
-                    <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-slate-500">Hoặc</span></div>
-                </div>
-
                 {/* Tabs: Email vs Phone */}
                 <div className="flex border-b border-slate-200">
                     <button
@@ -358,6 +364,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 {/* Forms */}
                 {authMethod === 'email' && (
                     <form className="space-y-4" onSubmit={handleEmailAuthAction}>
+                        {renderRegistrationFields()}
+                        
                         <div className="space-y-3">
                             <input
                                 type="email" required placeholder="Địa chỉ email"
@@ -390,6 +398,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     <form className="space-y-4" onSubmit={showOtpInput ? handleVerifyOtp : handleSendOtp}>
                         {!showOtpInput ? (
                             <>
+                                {renderRegistrationFields()}
                                 <input
                                     type="tel" required placeholder="Số điện thoại (VD: 0912345678)"
                                     className="block w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-sky-500 focus:ring-sky-500"

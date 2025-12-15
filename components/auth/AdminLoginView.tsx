@@ -62,9 +62,20 @@ const AdminLoginView: React.FC<AdminLoginViewProps> = ({ onLoginSuccess }) => {
 
     } catch (err: any) {
       console.error("Admin login error:", err);
-      setError(err.message || 'Đăng nhập thất bại.');
+      
+      let displayError = err.message || 'Đăng nhập thất bại.';
+      
+      // Dịch các lỗi phổ biến sang tiếng Việt
+      if (displayError.includes('Email not confirmed')) {
+          displayError = 'Tài khoản chưa được kích hoạt. Vui lòng kiểm tra email (bao gồm hòm thư Spam) để xác nhận.';
+      } else if (displayError.includes('Invalid login credentials')) {
+          displayError = 'Email hoặc mật khẩu không chính xác.';
+      }
+
+      setError(displayError);
+      
       // Đảm bảo đăng xuất nếu có lỗi quyền hạn
-      if (err.message.includes("Truy cập bị từ chối")) {
+      if (displayError.includes("Truy cập bị từ chối")) {
           await supabase.auth.signOut();
       }
     } finally {
@@ -126,7 +137,7 @@ const AdminLoginView: React.FC<AdminLoginViewProps> = ({ onLoginSuccess }) => {
                                 <ShieldCheckIcon className="h-5 w-5 text-red-500" aria-hidden="true" />
                             </div>
                             <div className="ml-3">
-                                <h3 className="text-sm font-medium text-red-400">Lỗi xác thực</h3>
+                                <h3 className="text-sm font-medium text-red-400">Lỗi đăng nhập</h3>
                                 <div className="mt-2 text-sm text-red-300">
                                     <p>{error}</p>
                                 </div>
