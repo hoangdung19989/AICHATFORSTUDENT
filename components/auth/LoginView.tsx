@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../services/supabaseClient';
+import { API_KEYS } from '../../config';
 import { 
     OnLuyenLogo, 
     AcademicCapIcon, 
@@ -8,7 +9,8 @@ import {
     ShieldCheckIcon,
     GoogleLogo,
     PaperAirplaneIcon,
-    CheckCircleIcon
+    CheckCircleIcon,
+    ExclamationTriangleIcon
 } from '../icons';
 import { useNavigation } from '../../contexts/NavigationContext';
 
@@ -37,9 +39,30 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoginView, setIsLoginView] = useState(true);
+  
+  // Config Check State
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  useEffect(() => {
+      const url = API_KEYS.SUPABASE_URL;
+      const key = API_KEYS.SUPABASE_ANON_KEY;
+      
+      const isPlaceholder = !url || url.includes('YOUR_SUPABASE_URL') || !key || key.includes('YOUR_SUPABASE_ANON_KEY');
+      const isDemo = url?.includes('ofxgkartrrnthebkwrih'); // Check for the old demo ID specifically
+
+      if (isPlaceholder) {
+          setConfigError("⚠️ Bạn chưa điền thông tin Supabase vào file 'config.ts'. Hãy mở file đó và dán URL + Key của dự án bạn vào.");
+      } else if (isDemo) {
+          setConfigError("❌ Bạn đang sử dụng URL Database Mẫu (Demo) của hệ thống cũ. Vui lòng thay thế bằng URL dự án Supabase CỦA BẠN trong file 'config.ts'.");
+      }
+  }, []);
 
   // --- GOOGLE LOGIN ---
   const handleGoogleLogin = async () => {
+      if (configError) {
+          alert("Vui lòng sửa lỗi cấu hình trong file config.ts trước!");
+          return;
+      }
       setIsSubmitting(true);
       setError(null);
       
@@ -67,6 +90,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   // --- PHONE LOGIN (SEND OTP) ---
   const handleSendOtp = async (e: React.FormEvent) => {
       e.preventDefault();
+      if (configError) return;
+      
       setIsSubmitting(true);
       setError(null);
       setMessage(null);
@@ -135,6 +160,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   // --- EMAIL AUTH ACTION ---
   const handleEmailAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (configError) return;
+
     setIsSubmitting(true);
     setError(null);
     setMessage(null);
@@ -185,6 +212,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   };
   
   const handlePasswordReset = async () => {
+      if (configError) return;
       if (!email) {
           setError("Vui lòng nhập email để khôi phục mật khẩu.");
           return;
@@ -214,6 +242,23 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </h2>
             <p className="mt-2 text-slate-500">Nền tảng học tập thông minh với AI</p>
         </div>
+
+        {/* --- CONFIG ERROR BANNER --- */}
+        {configError && (
+            <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg shadow-md animate-pulse">
+                <div className="flex">
+                    <div className="flex-shrink-0">
+                        <ExclamationTriangleIcon className="h-6 w-6 text-red-500" />
+                    </div>
+                    <div className="ml-3">
+                        <h3 className="text-sm font-bold text-red-800">Cấu hình chưa đúng!</h3>
+                        <div className="mt-2 text-sm text-red-700">
+                            <p>{configError}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* --- ROLE SELECTION (STEP 1) --- */}
         <div className="mb-6">
@@ -254,7 +299,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         </div>
 
         {/* --- AUTH METHODS (STEP 2) --- */}
-        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+        <div className={`bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 ${configError ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className={`p-4 border-b ${role === 'student' ? 'bg-sky-500 border-sky-600' : 'bg-purple-500 border-purple-600'}`}>
                  <h3 className="text-white font-bold text-center">
                     {isLoginView ? 'Đăng nhập ' : 'Đăng ký '} 
