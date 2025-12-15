@@ -47,31 +47,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   };
 
-  // --- LOGIC SỬA LỖI QUAN TRỌNG: FIX ROLE GOOGLE LOGIN ---
-  const fixRoleAfterGoogleLogin = async (userId: string) => {
+  // --- QUAN TRỌNG: HÀM SỬA LỖI ROLE ---
+  // Hàm này kiểm tra localStorage xem lúc nãy user có chọn "Giáo viên" không.
+  // Nếu có, nó sẽ gọi hàm SQL `claim_teacher_role` để sửa lại Database.
+  const fixRoleAfterGoogleLogin = async () => {
       const intendedRole = localStorage.getItem('intended_role');
       
-      // Chỉ xử lý nếu người dùng có ý định là Teacher
       if (intendedRole === 'teacher') {
-          console.log("[Auth] Phát hiện đăng nhập Teacher qua Google. Đang đồng bộ dữ liệu...");
+          console.log("[Auth] Phát hiện Teacher Login. Đang gọi SQL để sửa Role...");
           
-          // Gọi hàm RPC đặc biệt để ép Database cập nhật Role = teacher và Status = pending
-          // Hàm này (claim_teacher_role) cần được tạo trong SQL Editor (xem README.md)
+          // Gọi hàm RPC trong Database
           const { error } = await supabase.rpc('claim_teacher_role');
           
           if (error) {
-              console.error("[Auth] Lỗi khi gọi RPC claim_teacher_role:", error);
-              // Fallback: Thử update thủ công (có thể thất bại do RLS)
-              await supabase.auth.updateUser({ data: { role: 'teacher' } });
+              console.error("LỖI NGHIÊM TRỌNG: Không gọi được hàm SQL 'claim_teacher_role'.");
+              console.error("Vui lòng chạy đoạn SQL trong README.md trên Supabase SQL Editor.");
+              console.error("Chi tiết lỗi:", error);
           } else {
-              console.log("[Auth] Đã đồng bộ thành công Role Teacher (Pending).");
+              console.log("[Auth] Đã sửa Role thành công!");
           }
           
-          // Xóa cờ sau khi xử lý xong
           localStorage.removeItem('intended_role');
-          
-          // Trả về true để báo hiệu cần reload profile
-          return true;
+          return true; // Trả về true để báo hiệu cần load lại profile
       }
       return false;
   };
@@ -82,7 +79,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Timeout an toàn
     const timeout = setTimeout(() => {
         if (mounted && isLoading) {
-            console.warn("Auth loading timed out.");
             setIsLoading(false);
         }
     }, 5000);
@@ -98,15 +94,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setSession(currentSession);
                 setUser(currentSession.user);
                 
-                // 1. CHẠY LOGIC SỬA LỖI ROLE TRƯỚC KHI LẤY PROFILE
-                await fixRoleAfterGoogleLogin(currentSession.user.id);
+                // 1. CHẠY SỬA LỖI TRƯỚC KHI LẤY PROFILE
+                await fixRoleAfterGoogleLogin();
 
-                // 2. Lấy Profile (lúc này database đã đúng role)
+                // 2. Lấy Profile (lúc này data đã đúng)
                 let p = await fetchProfile(currentSession.user.id);
                 
-                // 3. (Cứu hộ) Nếu chưa có profile, tạo mới
+                // 3. Tạo profile nếu chưa có
                 if (!p) {
-                    console.log("[Auth] Profile missing. Creating default...");
                     const role = currentSession.user.user_metadata?.role || 'student';
                     await supabase.from('profiles').insert({
                         id: currentSession.user.id,
@@ -146,15 +141,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(session?.user ?? null);
       
       if (session?.user) {
-           // Cũng chạy logic sửa lỗi khi có sự kiện đăng nhập (SIGNED_IN)
+           // Nếu vừa đăng nhập, chạy lại fix role để chắc chắn
            if (event === 'SIGNED_IN') {
-                await fixRoleAfterGoogleLogin(session.user.id);
+               await fixRoleAfterGoogleLogin();
            }
            
            const p = await fetchProfile(session.user.id);
            if (mounted) setProfile(p);
-      } else {
-          if (mounted) setProfile(null);
       }
       
       if (mounted) setIsLoading(false);

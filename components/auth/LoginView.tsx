@@ -43,8 +43,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setIsSubmitting(true);
       setError(null);
       
-      // QUAN TRỌNG: Lưu role mong muốn vào localStorage.
-      // AuthContext sẽ đọc giá trị này khi người dùng quay lại từ Google để đồng bộ Database.
+      // BƯỚC QUAN TRỌNG NHẤT: Lưu role mong muốn vào bộ nhớ trình duyệt
+      // AuthContext sẽ đọc cái này khi quay lại để sửa database.
       localStorage.setItem('intended_role', role);
 
       try {
@@ -56,8 +56,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       access_type: 'offline',
                       prompt: 'consent', 
                   },
-                  // Dù ta gửi data ở đây, đôi khi Trigger SQL chạy nhanh hơn metadata update.
-                  // Vì vậy ta vẫn cần cơ chế "Self-Healing" trong AuthContext.
                   data: {
                       role: role, 
                       full_name: '',
@@ -68,7 +66,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       } catch (err: any) {
           setError(err.message || 'Lỗi đăng nhập Google.');
           setIsSubmitting(false);
-          // Không xóa intended_role ở đây phòng trường hợp user thử lại
       }
   };
 
