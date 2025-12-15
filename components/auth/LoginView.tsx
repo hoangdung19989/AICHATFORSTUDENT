@@ -52,7 +52,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       access_type: 'offline',
                       prompt: 'consent', 
                   },
-                  // QUAN TRỌNG: Gửi role lên metadata để Trigger xử lý
                   data: {
                       role: role, 
                   }
@@ -88,7 +87,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           const { error } = await supabase.auth.signInWithOtp({
               phone: formattedPhone,
               options: {
-                  // QUAN TRỌNG: Gửi role lên metadata để Trigger xử lý
                   data: {
                       role: role,
                   }
@@ -161,7 +159,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             email, 
             password,
             options: {
-                // QUAN TRỌNG: Gửi role lên metadata để Trigger xử lý
                 data: {
                     role: role, 
                     full_name: email.split('@')[0]
@@ -256,8 +253,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </div>
         </div>
 
-        {/* --- AUTH METHODS (STEP 2 - REVEALED) --- */}
-        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 animate-slide-in-bottom">
+        {/* --- AUTH METHODS (STEP 2) --- */}
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
             <div className={`p-4 border-b ${role === 'student' ? 'bg-sky-500 border-sky-600' : 'bg-purple-500 border-purple-600'}`}>
                  <h3 className="text-white font-bold text-center">
                     {isLoginView ? 'Đăng nhập ' : 'Đăng ký '} 
