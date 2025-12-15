@@ -4,10 +4,12 @@
 Vào **Supabase Dashboard > SQL Editor**, copy đoạn mã dưới đây và chạy để thiết lập lại toàn bộ cấu trúc:
 
 ```sql
--- 1. XÓA SẠCH BẢNG CŨ (Reset)
+-- 1. XÓA SẠCH BẢNG CŨ VÀ HÀM CŨ (Reset)
 DROP TABLE IF EXISTS public.exam_results CASCADE;
 DROP TABLE IF EXISTS public.question_attempts CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+DROP FUNCTION IF EXISTS public.is_admin() CASCADE;
 
 -- 2. TẠO BẢNG PROFILES MỚI
 CREATE TABLE public.profiles (
@@ -24,7 +26,35 @@ CREATE TABLE public.profiles (
 -- 3. BẬT BẢO MẬT RLS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 4. TẠO TRIGGER TỰ ĐỘNG XỬ LÝ ROLE & STATUS
+-- 4. TẠO HÀM CHECK ADMIN AN TOÀN (QUAN TRỌNG: Tránh lỗi Infinite Recursion)
+-- Hàm này chạy với quyền của người tạo (SECURITY DEFINER) nên không bị chặn bởi RLS
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+$$;
+
+-- 5. CHÍNH SÁCH BẢO MẬT (RLS) - ĐÃ SỬA LỖI
+CREATE POLICY "Users can view own profile" 
+ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
+
+-- Sử dụng hàm is_admin() thay vì select trực tiếp để tránh vòng lặp
+CREATE POLICY "Admins can view all profiles" 
+ON public.profiles FOR SELECT TO authenticated USING (is_admin());
+
+CREATE POLICY "Admins can update profiles" 
+ON public.profiles FOR UPDATE TO authenticated USING (is_admin());
+
+CREATE POLICY "Users can update own profile" 
+ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
+
+-- 6. TẠO TRIGGER TỰ ĐỘNG XỬ LÝ ROLE & STATUS KHI ĐĂNG KÝ
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -59,30 +89,13 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 5. CHÍNH SÁCH BẢO MẬT (RLS)
-CREATE POLICY "Users can view own profile" 
-ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
-
-CREATE POLICY "Admins can view all profiles" 
-ON public.profiles FOR SELECT TO authenticated USING (
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
-);
-
-CREATE POLICY "Admins can update profiles" 
-ON public.profiles FOR UPDATE TO authenticated USING (
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
-);
-
-CREATE POLICY "Users can update own profile" 
-ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
-
--- 6. HÀM CHO ADMIN LẤY DANH SÁCH USER
+-- 7. HÀM CHO ADMIN LẤY DANH SÁCH USER (Bypass RLS)
 CREATE OR REPLACE FUNCTION get_all_profiles()
 RETURNS SETOF profiles
 LANGUAGE sql SECURITY DEFINER SET search_path = public
 AS $$ SELECT * FROM profiles ORDER BY created_at DESC; $$;
 
--- 7. HÀM CHO ADMIN CẬP NHẬT ROLE
+-- 8. HÀM CHO ADMIN CẬP NHẬT ROLE
 CREATE OR REPLACE FUNCTION update_user_role(target_user_id UUID, new_role TEXT)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public

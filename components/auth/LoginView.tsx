@@ -47,14 +47,12 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const url = API_KEYS.SUPABASE_URL;
       const key = API_KEYS.SUPABASE_ANON_KEY;
       
+      // Chỉ báo lỗi nếu vẫn còn giữ nguyên placeholder mặc định
       const isPlaceholder = !url || url.includes('YOUR_SUPABASE_URL') || !key || key.includes('YOUR_SUPABASE_ANON_KEY');
-      const isDemo = url?.includes('ofxgkartrrnthebkwrih'); // Check for the old demo ID specifically
-
+      
       if (isPlaceholder) {
           setConfigError("⚠️ Bạn chưa điền thông tin Supabase vào file 'config.ts'. Hãy mở file đó và dán URL + Key của dự án bạn vào.");
-      } else if (isDemo) {
-          setConfigError("❌ Bạn đang sử dụng URL Database Mẫu (Demo) của hệ thống cũ. Vui lòng thay thế bằng URL dự án Supabase CỦA BẠN trong file 'config.ts'.");
-      }
+      } 
   }, []);
 
   // --- GOOGLE LOGIN ---
