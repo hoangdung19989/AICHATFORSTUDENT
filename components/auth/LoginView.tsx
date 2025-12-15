@@ -71,10 +71,16 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   redirectTo: window.location.origin,
                   queryParams: {
                       access_type: 'offline',
-                      prompt: 'consent', 
+                      // QUAN TRỌNG: 'select_account' buộc Google hỏi người dùng chọn tài khoản nào.
+                      // Giúp tránh trường hợp tự động login vào tài khoản cũ (Student) khi đang muốn test Teacher.
+                      prompt: 'select_account', 
                   },
                   data: {
+                      // Gửi role lên metadata. 
+                      // LƯU Ý: Dữ liệu này CHỈ được ghi khi tạo tài khoản MỚI. 
+                      // Nếu email đã tồn tại, Supabase sẽ BỎ QUA dòng này và giữ nguyên role cũ.
                       role: role, 
+                      full_name: '', // Để trống để Supabase tự lấy từ Google
                   }
               }
           });
@@ -313,7 +319,10 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     className="w-full flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3.5 px-4 rounded-lg transition-colors shadow-sm"
                 >
                     <GoogleLogo className="w-5 h-5 mr-3" />
-                    {isLoginView ? 'Tiếp tục với Google' : 'Đăng ký bằng Google'}
+                    {isLoginView 
+                        ? 'Tiếp tục với Google' 
+                        : `Đăng ký ${role === 'teacher' ? 'Giáo viên' : 'Học sinh'} bằng Google`
+                    }
                 </button>
 
                 <div className="relative">
