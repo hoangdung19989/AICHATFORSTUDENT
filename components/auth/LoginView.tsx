@@ -47,7 +47,6 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const url = API_KEYS.SUPABASE_URL;
       const key = API_KEYS.SUPABASE_ANON_KEY;
       
-      // Chỉ báo lỗi nếu vẫn còn giữ nguyên placeholder mặc định
       const isPlaceholder = !url || url.includes('YOUR_SUPABASE_URL') || !key || key.includes('YOUR_SUPABASE_ANON_KEY');
       
       if (isPlaceholder) {
@@ -65,22 +64,24 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setError(null);
       
       try {
+          // LƯU Ý QUAN TRỌNG:
+          // Nếu email đã tồn tại trong Auth Users, Supabase sẽ thực hiện LOGIN (giữ nguyên role cũ).
+          // Nếu email chưa tồn tại, Supabase sẽ thực hiện SIGNUP (dùng role mới trong options).
           const { error } = await supabase.auth.signInWithOAuth({
               provider: 'google',
               options: {
                   redirectTo: window.location.origin,
                   queryParams: {
                       access_type: 'offline',
-                      // QUAN TRỌNG: 'select_account' buộc Google hỏi người dùng chọn tài khoản nào.
-                      // Giúp tránh trường hợp tự động login vào tài khoản cũ (Student) khi đang muốn test Teacher.
-                      prompt: 'select_account', 
+                      // 'select_account': Buộc Google hỏi chọn tài khoản (để bạn có thể chọn email khác hoặc đăng nhập lại).
+                      // 'consent': Buộc hiển thị màn hình cấp quyền lại -> Giúp reset flow tốt hơn khi test.
+                      prompt: 'consent select_account', 
                   },
                   data: {
-                      // Gửi role lên metadata. 
-                      // LƯU Ý: Dữ liệu này CHỈ được ghi khi tạo tài khoản MỚI. 
-                      // Nếu email đã tồn tại, Supabase sẽ BỎ QUA dòng này và giữ nguyên role cũ.
+                      // Dữ liệu này chỉ được ghi vào metadata KHI TẠO USER MỚI (Sign Up).
+                      // Nếu user cũ login, dòng này bị bỏ qua.
                       role: role, 
-                      full_name: '', // Để trống để Supabase tự lấy từ Google
+                      full_name: '', 
                   }
               }
           });
@@ -314,16 +315,24 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <div className="p-6 sm:p-8 space-y-6">
                 
                 {/* Google Button */}
-                <button
-                    onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3.5 px-4 rounded-lg transition-colors shadow-sm"
-                >
-                    <GoogleLogo className="w-5 h-5 mr-3" />
-                    {isLoginView 
-                        ? 'Tiếp tục với Google' 
-                        : `Đăng ký ${role === 'teacher' ? 'Giáo viên' : 'Học sinh'} bằng Google`
-                    }
-                </button>
+                <div className="space-y-2">
+                    <button
+                        onClick={handleGoogleLogin}
+                        className="w-full flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-3.5 px-4 rounded-lg transition-colors shadow-sm"
+                    >
+                        <GoogleLogo className="w-5 h-5 mr-3" />
+                        {isLoginView 
+                            ? 'Tiếp tục với Google' 
+                            : `Đăng ký ${role === 'teacher' ? 'Giáo viên' : 'Học sinh'} bằng Google`
+                        }
+                    </button>
+                    {/* HINT FOR USER */}
+                    {role === 'teacher' && (
+                        <p className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                            <strong>Lưu ý:</strong> Nếu email Google này đã từng đăng nhập vào hệ thống dưới quyền Học sinh, nó sẽ giữ nguyên quyền cũ. Hãy dùng email mới hoặc nhờ Admin xóa tài khoản cũ.
+                        </p>
+                    )}
+                </div>
 
                 <div className="relative">
                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200"></div></div>

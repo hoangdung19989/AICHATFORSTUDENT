@@ -1,101 +1,87 @@
 
-# 🔥 HƯỚNG DẪN CÀI ĐẶT LẠI DATABASE (CHẠY 1 LẦN DUY NHẤT)
+# 🔥 CẤU HÌNH DATABASE (BẮT BUỘC CHẠY 1 LẦN)
 
-Vào **Supabase Dashboard > SQL Editor**, copy đoạn mã dưới đây và chạy để thiết lập lại toàn bộ cấu trúc:
+Để tính năng **Đăng nhập Google** phân biệt được Giáo viên (Pending) và Học sinh (Active), bạn hãy copy toàn bộ đoạn code dưới đây và chạy trong **Supabase Dashboard > SQL Editor**.
 
 ```sql
--- 1. XÓA SẠCH BẢNG CŨ VÀ HÀM CŨ (Reset)
-DROP TABLE IF EXISTS public.exam_results CASCADE;
-DROP TABLE IF EXISTS public.question_attempts CASCADE;
+-- 1. XÓA CÁC BẢNG CŨ (Làm sạch dữ liệu để tránh lỗi)
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
 DROP TABLE IF EXISTS public.profiles CASCADE;
-DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
-DROP FUNCTION IF EXISTS public.is_admin() CASCADE;
 
--- 2. TẠO BẢNG PROFILES MỚI
+-- 2. TẠO BẢNG PROFILES (Lưu thông tin người dùng)
 CREATE TABLE public.profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   email TEXT,
   full_name TEXT,
   avatar_url TEXT,
-  role TEXT DEFAULT 'student' CHECK (role IN ('student', 'teacher', 'admin')),
-  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'pending', 'blocked')),
+  role TEXT DEFAULT 'student',
+  status TEXT DEFAULT 'active', -- active, pending, blocked
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. BẬT BẢO MẬT RLS
+-- 3. BẬT BẢO MẬT (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 4. TẠO HÀM CHECK ADMIN AN TOÀN (QUAN TRỌNG: Tránh lỗi Infinite Recursion)
--- Hàm này chạy với quyền của người tạo (SECURITY DEFINER) nên không bị chặn bởi RLS
+-- Hàm hỗ trợ Admin (tránh lỗi vòng lặp)
 CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM profiles
-    WHERE id = auth.uid() AND role = 'admin'
-  );
-$$;
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER SET search_path = public
+AS $$ SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'); $$;
 
--- 5. CHÍNH SÁCH BẢO MẬT (RLS) - ĐÃ SỬA LỖI
-CREATE POLICY "Users can view own profile" 
-ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
+-- Chính sách bảo mật
+CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
--- Sử dụng hàm is_admin() thay vì select trực tiếp để tránh vòng lặp
-CREATE POLICY "Admins can view all profiles" 
-ON public.profiles FOR SELECT TO authenticated USING (is_admin());
-
-CREATE POLICY "Admins can update profiles" 
-ON public.profiles FOR UPDATE TO authenticated USING (is_admin());
-
-CREATE POLICY "Users can update own profile" 
-ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
-
--- 6. TẠO TRIGGER TỰ ĐỘNG XỬ LÝ ROLE & STATUS KHI ĐĂNG KÝ
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql
+-- 4. [QUAN TRỌNG NHẤT] TRIGGER XỬ LÝ ĐĂNG KÝ GOOGLE/EMAIL
+-- Hàm này sẽ chạy TỰ ĐỘNG ngay khi có người đăng nhập lần đầu
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS trigger 
+LANGUAGE plpgsql 
 SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE
-  meta_role text := COALESCE(new.raw_user_meta_data->>'role', 'student');
+  meta_role text;
   init_status text;
 BEGIN
-  -- Nếu là giáo viên, set pending. Còn lại là active.
+  -- 1. Lấy vai trò từ dữ liệu Google gửi sang (được set ở code frontend)
+  -- Nếu không có thì mặc định là 'student'
+  meta_role := COALESCE(new.raw_user_meta_data->>'role', 'student');
+  
+  -- 2. Logic xét duyệt:
+  -- Nếu là 'teacher' -> Trạng thái là 'pending' (Chờ duyệt)
+  -- Nếu là 'student' -> Trạng thái là 'active' (Vào học luôn)
   IF meta_role = 'teacher' THEN
     init_status := 'pending';
   ELSE
     init_status := 'active';
   END IF;
 
-  INSERT INTO public.profiles (id, email, role, status, full_name, avatar_url)
+  -- 3. Tạo profile mới với thông tin đã xử lý
+  INSERT INTO public.profiles (id, email, full_name, avatar_url, role, status)
   VALUES (
-    new.id,
-    new.email,
+    new.id, 
+    new.email, 
+    COALESCE(new.raw_user_meta_data->>'full_name', new.email),
+    new.raw_user_meta_data->>'avatar_url',
     meta_role,
-    init_status,
-    COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    new.raw_user_meta_data->>'avatar_url'
+    init_status
   );
   RETURN new;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+-- Gắn hàm trên vào sự kiện "Người dùng mới được tạo"
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 7. HÀM CHO ADMIN LẤY DANH SÁCH USER (Bypass RLS)
+-- 5. HÀM CHO ADMIN QUẢN LÝ (Lấy danh sách & Cập nhật quyền)
 CREATE OR REPLACE FUNCTION get_all_profiles()
 RETURNS SETOF profiles
 LANGUAGE sql SECURITY DEFINER SET search_path = public
 AS $$ SELECT * FROM profiles ORDER BY created_at DESC; $$;
 
--- 8. HÀM CHO ADMIN CẬP NHẬT ROLE
 CREATE OR REPLACE FUNCTION update_user_role(target_user_id UUID, new_role TEXT)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
@@ -109,8 +95,19 @@ END;
 $$;
 ```
 
-# 🔥 CÁCH TẠO ADMIN ĐẦU TIÊN
-1. Đăng ký một tài khoản bình thường.
-2. Vào **Supabase > Table Editor > profiles**.
-3. Tìm dòng của email bạn vừa đăng ký.
-4. Sửa cột `role` thành `admin`.
+---
+
+### ⚠️ LƯU Ý KHI TEST: "TẠI SAO VẪN VÀO QUYỀN HỌC SINH?"
+
+Nếu bạn dùng một Gmail (ví dụ: `test@gmail.com`) để đăng nhập:
+1.  Lần đầu bạn chọn "Học sinh" -> Hệ thống lưu vĩnh viễn `test@gmail.com` là **Học sinh**.
+2.  Lần sau bạn quay ra chọn "Giáo viên" và đăng nhập lại bằng `test@gmail.com`.
+    *   Hệ thống nhận ra email này **đã tồn tại**.
+    *   Nó thực hiện **Đăng nhập (Login)** vào tài khoản cũ (Học sinh) chứ không **Đăng ký mới**.
+    *   Do đó, nó bỏ qua yêu cầu làm Giáo viên của bạn.
+
+**CÁCH KHẮC PHỤC ĐỂ TEST:**
+1.  Vào **Supabase Dashboard** > **Authentication** > **Users**.
+2.  Tìm email bạn đang test và nhấn **Delete User**.
+3.  Quay lại trang web, chọn **Giáo viên** -> **Đăng nhập Google**.
+4.  Lúc này hệ thống coi đây là người mới -> Trigger hoạt động -> Bạn sẽ thấy màn hình "Chờ xét duyệt".
