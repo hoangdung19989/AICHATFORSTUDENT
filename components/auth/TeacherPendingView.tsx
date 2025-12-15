@@ -1,10 +1,17 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { ClockIcon, ArrowPathIcon } from '../icons'; // Assuming ArrowPathIcon exists or uses a refresh icon
+import { ClockIcon, ArrowPathIcon } from '../icons'; 
 
 const TeacherPendingView: React.FC = () => {
-  const { refreshProfile, signOut, user } = useAuth();
+  const { signOut, user } = useAuth();
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handleReload = () => {
+      setIsChecking(true);
+      // Buộc tải lại trang web để xóa sạch bộ nhớ đệm và lấy dữ liệu mới nhất từ Supabase
+      window.location.reload();
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
@@ -21,21 +28,22 @@ const TeacherPendingView: React.FC = () => {
           Xin chào <strong>{user?.user_metadata?.full_name || user?.email}</strong>,<br/>
           Cảm ơn thầy/cô đã đăng ký tài khoản Giáo viên trên OnLuyen AI.
           <br/><br/>
-          Để đảm bảo an toàn hệ thống, tài khoản giáo viên cần được Quản trị viên (Admin) phê duyệt thủ công trước khi có thể truy cập các công cụ giảng dạy.
+          Nếu Admin đã thông báo kích hoạt, vui lòng nhấn nút bên dưới để vào hệ thống.
         </p>
 
         <div className="bg-slate-50 rounded-lg p-4 mb-8 text-sm text-slate-500 border border-slate-100">
-          <p>Thời gian xét duyệt thường mất từ <strong>1 - 24 giờ</strong>.</p>
-          <p>Vui lòng quay lại sau hoặc liên hệ Admin nếu cần gấp.</p>
+          <p>Trạng thái hiện tại: <span className="font-bold text-yellow-600">PENDING (Chờ duyệt)</span></p>
+          <p className="mt-1">Vui lòng liên hệ Admin nếu cần hỗ trợ gấp.</p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
-            onClick={refreshProfile}
-            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-lg text-white bg-yellow-600 hover:bg-yellow-700 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+            onClick={handleReload}
+            disabled={isChecking}
+            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-lg text-white bg-yellow-600 hover:bg-yellow-700 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-70"
           >
-            <ArrowPathIcon className="h-5 w-5 mr-2" />
-            Kiểm tra trạng thái
+            <ArrowPathIcon className={`h-5 w-5 mr-2 ${isChecking ? 'animate-spin' : ''}`} />
+            {isChecking ? 'Đang tải lại...' : 'Đã được duyệt? Nhấn vào đây'}
           </button>
           <button
             onClick={signOut}
